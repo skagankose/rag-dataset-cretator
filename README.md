@@ -79,6 +79,11 @@ DATA_DIR/
 
 Each file includes YAML metadata with IDs, timestamps, and processing options, making it easy to track and use in ML pipelines.
 
+**Project Structure:**
+- `backend/` - FastAPI Python application
+- `frontend/` - React TypeScript application
+- `docker-compose.yml` - Full application setup
+
 ## Configuration Options
 
 Create a `.env` file (copy from `env.template`) with these settings:
@@ -96,22 +101,6 @@ DEFAULT_CHUNK_OVERLAP=200
 DEFAULT_TOTAL_QUESTIONS=10
 BACKEND_PORT=8051
 ```
-
-## Development
-
-**Code Formatting:**
-```bash
-# Backend
-make fmt lint test
-
-# Frontend  
-npm run format lint
-```
-
-**Project Structure:**
-- `backend/` - FastAPI Python application
-- `frontend/` - React TypeScript application
-- `docker-compose.yml` - Full application setup
 
 ## Troubleshooting
 
