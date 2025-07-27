@@ -9,6 +9,8 @@ import {
   ExclamationCircleIcon,
   ArrowPathIcon,
   TrashIcon,
+  RectangleStackIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline'
 
 import { startIngestion, getArticles, deleteArticle } from '../lib/api'
@@ -210,7 +212,7 @@ function HomePage() {
                   <select
                     value={options.split_strategy}
                     onChange={(e) => setOptions(prev => ({ ...prev, split_strategy: e.target.value as 'recursive' | 'sentence' | 'header_aware' }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none h-10"
+                    className="w-full h-10 px-3 py-2 rounded-lg border border-gray-600 bg-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     disabled={isProcessing}
                   >
                     <option value="recursive">Recursive</option>
@@ -311,15 +313,17 @@ function HomePage() {
                     <div className="flex items-center space-x-3 opacity-70 group-hover:opacity-100 transition-opacity">
                       <Link
                         to={`/articles/${article.id}`}
-                        className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                        className="text-sm text-blue-400 hover:text-blue-300 flex items-center space-x-1 font-medium"
                       >
-                        View
+                        <RectangleStackIcon className="h-4 w-4" />
+                        <span>Chunks</span>
                       </Link>
                       <Link
                         to={`/dataset/${article.id}`}
-                        className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                        className="text-sm text-green-400 hover:text-green-300 flex items-center space-x-1 font-medium"
                       >
-                        Dataset
+                        <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                        <span>Question</span>
                       </Link>
                       <button
                         onClick={() => handleDeleteArticle(article.id, article.title)}

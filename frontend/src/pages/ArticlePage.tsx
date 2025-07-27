@@ -8,7 +8,7 @@ import {
   ChevronLeftIcon,
 } from '@heroicons/react/24/outline'
 
-import { getArticle, getChunks, getFileUrl } from '../lib/api'
+import { getArticle, getChunks, getFileUrl, downloadFile } from '../lib/api'
 
 function ArticlePage() {
   const { articleId } = useParams<{ articleId: string }>()
@@ -58,6 +58,33 @@ function ArticlePage() {
     const link = document.createElement('a')
     link.href = url
     link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'chunks'}_index.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadArticleAsJson = () => {
+    const articleData = {
+      id: article?.id,
+      title: article?.title,
+      url: article?.url,
+      lang: article?.lang,
+      created_at: article?.created_at,
+      stats: article?.stats,
+      options: article?.options,
+      metadata: {
+        export_date: new Date().toISOString()
+      }
+    }
+    
+    const dataStr = JSON.stringify(articleData, null, 2)
+    const dataBlob = new Blob([dataStr], { type: 'application/json' })
+    const url = URL.createObjectURL(dataBlob)
+    
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_article.json`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -152,20 +179,19 @@ function ArticlePage() {
               </div>
               
               <div className="flex flex-row lg:flex-col gap-3">
-                <a
-                  href={getFileUrl(article.id, 'article.md')}
-                  download
+                <button
+                  onClick={downloadArticleAsJson}
                   className="inline-flex items-center justify-center px-4 py-2 border border-gray-600 text-sm font-medium rounded-xl text-gray-200 bg-gray-700 hover:bg-gray-600 transition-colors"
                 >
                   <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
                   Download Article
-                </a>
+                </button>
                 <Link
                   to={`/dataset/${article.id}`}
                   className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-xl text-white bg-blue-600 hover:bg-blue-700 transition-colors"
                 >
                   <DocumentTextIcon className="h-4 w-4 mr-2" />
-                  View Dataset
+                  View Questions
                 </Link>
               </div>
             </div>
@@ -175,14 +201,10 @@ function ArticlePage() {
               <h3 className="text-sm font-medium text-white mb-4">
                 Processing Configuration
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="text-sm">
                   <span className="block text-gray-400">Chunk Size</span>
                   <span className="font-medium text-white">{article.options.chunk_size}</span>
-                </div>
-                <div className="text-sm">
-                  <span className="block text-gray-400">Overlap</span>
-                  <span className="font-medium text-white">{article.options.chunk_overlap}</span>
                 </div>
                 <div className="text-sm">
                   <span className="block text-gray-400">Strategy</span>
@@ -236,39 +258,29 @@ function ArticlePage() {
                 {filteredChunks.map((chunk) => (
                   <div key={chunk.id} className="border border-gray-600 rounded-xl overflow-hidden hover:shadow-sm transition-shadow">
                     <div className="p-6">
-                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-3 mb-4">
-                            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-900 text-blue-200">
-                              {chunk.id}
-                            </span>
-                            <span className="text-sm text-gray-400">
-                              {chunk.heading_path}
-                            </span>
-                          </div>
-                          
-                          <div className="bg-gray-700 rounded-lg p-4 mb-4 max-h-80 overflow-y-auto">
-                            <pre className="whitespace-pre-wrap text-sm text-white font-mono leading-relaxed">
-                              {chunk.content}
-                            </pre>
-                          </div>
-                          
-                          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
-                            <span>{chunk.char_count} characters</span>
-                            <span>•</span>
-                            <span>~{chunk.token_estimate} tokens</span>
-                            <span>•</span>
-                            <span>Position: {chunk.start_char}-{chunk.end_char}</span>
-                          </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-3 mb-4">
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-900 text-blue-200">
+                            {chunk.id}
+                          </span>
+                          <span className="text-sm text-gray-400">
+                            {chunk.heading_path}
+                          </span>
                         </div>
                         
-                        <a
-                          href={getFileUrl(article.id, `${chunk.id}.md`)}
-                          download
-                          className="flex-shrink-0 text-sm text-blue-400 hover:text-blue-300 font-medium"
-                        >
-                          Download
-                        </a>
+                        <div className="bg-gray-700 rounded-lg p-4 mb-4 max-h-80 overflow-y-auto">
+                          <pre className="whitespace-pre-wrap text-sm text-white font-mono leading-relaxed">
+                            {chunk.content}
+                          </pre>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+                          <span>{chunk.char_count} characters</span>
+                          <span>•</span>
+                          <span>~{chunk.token_estimate} tokens</span>
+                          <span>•</span>
+                          <span>Position: {chunk.start_char}-{chunk.end_char}</span>
+                        </div>
                       </div>
                     </div>
                   </div>

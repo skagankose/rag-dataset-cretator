@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { 
-  DocumentArrowDownIcon,
+  DocumentTextIcon,
   MagnifyingGlassIcon,
   ClipboardDocumentIcon,
   ChevronLeftIcon,
@@ -114,7 +114,7 @@ function DatasetPage() {
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
               <div className="flex-1 min-w-0">
                 <h1 className="text-3xl font-semibold text-white mb-4 leading-tight">
-                  Dataset: {dataset.title}
+                  {dataset.title}
                 </h1>
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-400">
                   <span className="flex items-center">
@@ -129,21 +129,13 @@ function DatasetPage() {
               </div>
               
               <div className="flex flex-row lg:flex-col gap-3">
-                <a
-                  href={getFileUrl(dataset.article_id, 'dataset.md')}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center px-4 py-2 border border-gray-600 text-sm font-medium rounded-xl text-gray-200 bg-gray-700 hover:bg-gray-600 transition-colors"
-                >
-                  View Raw
-                </a>
-                <button
-                  onClick={handleDownloadDataset}
+                <Link
+                  to={`/articles/${articleId}`}
                   className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-xl text-white bg-blue-600 hover:bg-blue-700 transition-colors"
                 >
-                  <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
-                  Download JSON
-                </button>
+                  <DocumentTextIcon className="h-4 w-4 mr-2" />
+                  View Chunks
+                </Link>
               </div>
             </div>
           </div>
@@ -154,21 +146,27 @@ function DatasetPage() {
           <div className="p-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <h2 className="text-xl font-medium text-white">
-                Questions & Answers ({dataset.total_questions})
+                Questions ({dataset.total_questions})
               </h2>
-              
-              {/* Search */}
-              <div className="w-full sm:w-64">
-                <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search questions..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+              <button
+                onClick={handleDownloadDataset}
+                className="text-sm text-blue-400 hover:text-blue-300 font-medium self-start sm:self-auto"
+              >
+                Download Questions (JSON)
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="mb-6">
+              <div className="relative">
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search questions..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
               </div>
             </div>
 
