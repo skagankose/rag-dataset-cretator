@@ -164,6 +164,14 @@ npm run format lint
 - Review log files in the data directory
 - Verify your `.env` configuration
 
+## TODO
+
+**Planned Improvements:**
+- **Add Gemini CLI support** - Integrate Google's Gemini models as an alternative to OpenAI
+- **Improve question generation prompting**:
+  1. Each question should be related to more chunks (cross-chunk relationships)
+  2. Generated items don't need to be questions (e.g. they can be commands, tasks, or other prompts)
+
 ## Author
 
 Created by [Your Name] - feel free to contribute or report issues.
