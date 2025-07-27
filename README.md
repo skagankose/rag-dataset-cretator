@@ -60,34 +60,6 @@ The result is a complete dataset with questions, source text chunks, and all the
    - Watch the processing happen in real-time
    - Download your generated dataset files
 
-### Development Setup
-
-If you want to run it without Docker:
-
-**Backend (Python/FastAPI):**
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-**Frontend (React/TypeScript):**
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Basic Usage
-
-1. **Start Processing** - Enter a Wikipedia URL (like `https://en.wikipedia.org/wiki/Machine_learning`)
-2. **Configure Options** - Set chunk size, question count, and other preferences
-3. **Watch Progress** - Real-time updates show fetching, cleaning, chunking, and question generation
-4. **Review Results** - Browse generated chunks and questions in the web interface
-5. **Download Files** - Get your complete dataset as organized Markdown files
-
 ## What You Get
 
 The application creates a structured dataset for each article:
@@ -124,17 +96,6 @@ DEFAULT_CHUNK_OVERLAP=200
 DEFAULT_TOTAL_QUESTIONS=10
 BACKEND_PORT=8051
 ```
-
-## API Access
-
-The backend provides REST API endpoints if you want to integrate programmatically:
-
-- `POST /ingest` - Start processing an article
-- `GET /articles` - List all processed articles  
-- `GET /dataset/{article_id}` - Get generated questions
-- `GET /files/{article_id}/{filename}` - Download files
-
-API documentation available at: http://localhost:8051/docs
 
 ## Development
 
@@ -174,7 +135,7 @@ npm run format lint
 
 ## Author
 
-Created by [Your Name] - feel free to contribute or report issues.
+Created by Kagan Kose - feel free to contribute or report issues.
 
 ## License
 
