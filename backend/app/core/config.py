@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     
     # App configuration
     app_env: Literal["dev", "prod"] = Field(default="dev")
-    backend_port: int = Field(default=8000)
+    backend_port: int = Field(default=8051)
     data_dir: Path = Field(default=Path("./data"))
     
     # OpenAI configuration

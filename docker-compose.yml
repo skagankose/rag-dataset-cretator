@@ -6,10 +6,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8051:8051"
     environment:
       - APP_ENV=dev
-      - BACKEND_PORT=8000
+      - BACKEND_PORT=8051
       - DATA_DIR=/app/data
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4o}
@@ -22,9 +22,9 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8051 --reload
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8051/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -34,12 +34,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "5180:5180"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8051
     command: npm run dev -- --host
 
  

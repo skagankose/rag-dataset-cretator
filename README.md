@@ -1,295 +1,175 @@
 # RAG Dataset Creator
 
-A production-ready, dockerized web application for creating RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. The app fetches articles, processes them into chunks, generates questions using OpenAI, and outputs everything as structured Markdown files.
+A web application that automatically creates RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. It fetches articles, processes them into chunks, generates questions using AI, and saves everything as structured files ready for machine learning workflows.
 
-## Features
+## What This Application Does
 
-- **Wikipedia Integration**: Fetch articles via MediaWiki API with language detection
-- **Smart Text Processing**: Clean HTML content and split into chunks using recursive or sentence-based strategies
-- **AI-Powered Question Generation**: Generate contextual questions using OpenAI GPT models
-- **Markdown Output**: All data saved as structured Markdown files with YAML front matter
-- **Real-time Progress**: Live updates via Server-Sent Events during ingestion
-- **Modern UI**: React + TypeScript frontend with TailwindCSS and dark mode
-- **Production Ready**: Dockerized with proper error handling, logging, and health checks
+This tool automates the creation of question-answer datasets for training RAG systems:
 
-## Architecture
+1. **Fetches Wikipedia Articles** - Takes any Wikipedia URL and downloads the article content
+2. **Processes Text** - Cleans the content and splits it into manageable chunks
+3. **Generates Questions** - Uses OpenAI's GPT models to create relevant questions for each text chunk
+4. **Saves Structured Output** - Exports everything as organized Markdown files with metadata
 
-### Backend (FastAPI + Python)
-- **Ingestion Pipeline**: Fetch → Clean → Split → Generate Questions → Write Files
-- **Storage**: File-based with atomic operations (no databases)
-- **API**: RESTful endpoints with OpenAPI documentation
-- **Streaming**: Server-Sent Events for real-time progress updates
+The result is a complete dataset with questions, source text chunks, and all the metadata needed for machine learning projects.
 
-### Frontend (React + TypeScript)
-- **Modern Stack**: Vite, TailwindCSS, React Router, React Query
-- **Real-time UI**: SSE integration for live progress tracking
-- **File Management**: Browse chunks, view datasets, download files
-- **Responsive Design**: Works on desktop and mobile
+## Key Features
 
-### Storage Structure
-```
-DATA_DIR/
-  index.json                      # List of articles
-  articles/
-    {article_id}/
-      article.md                  # Full article with metadata
-      chunks/
-        c0001.md                  # Individual chunks
-        c0002.md
-        ...
-      chunks_index.md             # Chunk summary table
-      dataset.md                  # Questions dataset
-      logs.ndjson                 # Processing logs
-      raw.html                    # Original HTML
-```
+- **Simple Web Interface** - Easy-to-use React frontend for managing the process
+- **Real-time Progress** - Watch articles being processed with live status updates
+- **Flexible Configuration** - Customize chunk sizes, question counts, and AI models
+- **Multiple Output Formats** - Structured Markdown files with YAML metadata
+- **Production Ready** - Dockerized setup with proper error handling and logging
+- **No Database Required** - File-based storage that's easy to backup and manage
 
-## Quick Start
+## What You Need to Configure
 
-### Prerequisites
-- Docker and Docker Compose
-- OpenAI API key
+### Required
+- **OpenAI API Key** - Get one from [OpenAI Platform](https://platform.openai.com/api-keys)
 
-### Setup
-1. **Clone the repository**
+### Optional Settings
+- **Chunk Size** - How large each text segment should be (default: 1200 characters)
+- **Question Count** - Total questions to generate per article (default: 10)
+- **AI Model** - Which OpenAI model to use (default: gpt-4o-mini)
+- **Text Processing** - How to split text (recursive or sentence-based)
+
+## How to Run It
+
+### Quick Start with Docker (Recommended)
+
+1. **Get the Code**
    ```bash
    git clone <repository-url>
    cd rag_dataset_creator
    ```
 
-2. **Configure environment**
+2. **Set Your OpenAI API Key**
    ```bash
    cp env.template .env
-   # Edit .env and add your OPENAI_API_KEY
+   # Edit .env and add: OPENAI_API_KEY=your_api_key_here
    ```
 
-3. **Start the application**
+3. **Start the Application**
    ```bash
    docker compose up --build
    ```
 
-4. **Access the application**
-   - Frontend: http://localhost:5173
-   - Backend API: http://localhost:8000
-   - API Documentation: http://localhost:8000/docs
+4. **Use the App**
+   - Open http://localhost:5180 in your browser
+   - Paste a Wikipedia URL and configure options
+   - Watch the processing happen in real-time
+   - Download your generated dataset files
 
-## Configuration
+### Development Setup
 
-### Environment Variables
+If you want to run it without Docker:
 
-All environment variables are documented in `env.template`. Copy it to `.env` and configure:
-
-```bash
-cp env.template .env
-```
-
-**Required Variables:**
-- `OPENAI_API_KEY` - Your OpenAI API key (get from https://platform.openai.com/api-keys)
-
-**OpenAI Configuration:**
-- `OPENAI_CHAT_MODEL` - Model for question generation (default: gpt-4o-mini)
-- `OPENAI_TIMEOUT` - Request timeout in seconds (default: 60)
-- `OPENAI_MAX_RETRIES` - Max retries for failed requests (default: 5)
-
-**Ingestion Defaults:**
-- `DEFAULT_CHUNK_SIZE` - Text chunk size in characters (default: 1200)
-- `DEFAULT_CHUNK_OVERLAP` - Overlap between chunks (default: 200)
-- `DEFAULT_TOTAL_QUESTIONS` - Total questions to generate (default: 10)
-- `STRIP_SECTIONS` - Remove Wikipedia sections like References (default: true)
-
-**Optional Configuration:**
-- `APP_ENV` - Environment (dev/prod, default: dev)
-- `BACKEND_PORT` - Backend port (default: 8000)
-- `DATA_DIR` - Data storage directory (default: /app/data)
-- `VITE_API_URL` - Frontend API URL (default: http://localhost:8000)
-
-### Ingestion Options
-
-- **chunk_size**: Target size for text chunks (100-5000 characters)
-- **chunk_overlap**: Overlap between consecutive chunks (0-1000 characters)
-- **split_strategy**: "recursive" (default) or "sentence"
-- **total_questions**: Total questions to generate across all chunks (1-50)
-- **llm_model**: OpenAI model to use (default: gpt-4o-mini)
-- **reingest**: Force re-processing of existing articles
-
-## API Endpoints
-
-### Core Endpoints
-- `GET /health` - Health check
-- `POST /ingest` - Start article ingestion
-- `GET /ingest/stream/{run_id}` - Stream progress via SSE
-- `GET /articles` - List all articles
-- `GET /articles/{article_id}` - Get article metadata
-- `GET /articles/{article_id}/chunks` - List article chunks
-- `GET /dataset/{article_id}` - Get questions dataset
-- `GET /files/{article_id}/{filename}` - Download files
-
-### Example Usage
-
-**Start Ingestion:**
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "wikipedia_url": "https://en.wikipedia.org/wiki/Machine_learning",
-    "options": {
-      "chunk_size": 1000,
-      "total_questions": 15,
-      "llm_model": "gpt-4o-mini"
-    }
-  }'
-```
-
-**Stream Progress:**
-```bash
-curl -N http://localhost:8000/ingest/stream/{run_id}
-```
-
-## Development
-
-### Backend Development
+**Backend (Python/FastAPI):**
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp ../env.template ../.env  # Add your OpenAI API key
 uvicorn app.main:app --reload
 ```
 
-### Frontend Development
+**Frontend (React/TypeScript):**
 ```bash
 cd frontend
 npm install
-# Environment variables are automatically loaded from root .env
 npm run dev
 ```
 
-### Code Quality
+## Basic Usage
+
+1. **Start Processing** - Enter a Wikipedia URL (like `https://en.wikipedia.org/wiki/Machine_learning`)
+2. **Configure Options** - Set chunk size, question count, and other preferences
+3. **Watch Progress** - Real-time updates show fetching, cleaning, chunking, and question generation
+4. **Review Results** - Browse generated chunks and questions in the web interface
+5. **Download Files** - Get your complete dataset as organized Markdown files
+
+## What You Get
+
+The application creates a structured dataset for each article:
+
+```
+DATA_DIR/
+  articles/
+    {article_id}/
+      article.md          # Full article with metadata
+      chunks/
+        c0001.md         # Individual text chunks
+        c0002.md
+        ...
+      dataset.md         # Generated questions dataset
+      chunks_index.md    # Summary of all chunks
+```
+
+Each file includes YAML metadata with IDs, timestamps, and processing options, making it easy to track and use in ML pipelines.
+
+## Configuration Options
+
+Create a `.env` file (copy from `env.template`) with these settings:
+
+**Required:**
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+**Optional (with defaults):**
+```env
+OPENAI_CHAT_MODEL=gpt-4o-mini
+DEFAULT_CHUNK_SIZE=1200
+DEFAULT_CHUNK_OVERLAP=200
+DEFAULT_TOTAL_QUESTIONS=10
+BACKEND_PORT=8051
+```
+
+## API Access
+
+The backend provides REST API endpoints if you want to integrate programmatically:
+
+- `POST /ingest` - Start processing an article
+- `GET /articles` - List all processed articles  
+- `GET /dataset/{article_id}` - Get generated questions
+- `GET /files/{article_id}/{filename}` - Download files
+
+API documentation available at: http://localhost:8051/docs
+
+## Development
+
+**Code Formatting:**
 ```bash
 # Backend
-make fmt    # Format code
-make lint   # Run linters
-make test   # Run tests
+make fmt lint test
 
-# Frontend
-npm run format  # Format code
-npm run lint    # Run ESLint
+# Frontend  
+npm run format lint
 ```
 
-## Output Format
-
-### Article Markdown (`article.md`)
-```yaml
----
-id: article_12345
-url: https://en.wikipedia.org/wiki/Machine_learning
-title: Machine learning
-lang: en
-created_at: "2024-01-01T12:00:00Z"
-options:
-  chunk_size: 1200
-  split_strategy: recursive
-stats:
-  word_count: 5000
-  num_chunks: 10
----
-
-# Machine learning
-
-Machine learning is a subset of artificial intelligence...
-```
-
-### Chunk Files (`chunks/c0001.md`)
-```yaml
----
-id: c0001
-article_id: article_12345
-section: Introduction
-heading_path: Lead > Introduction
-start_char: 0
-end_char: 1200
----
-
-Machine learning is a subset of artificial intelligence...
-```
-
-### Dataset (`dataset.md`)
-```markdown
-# Dataset: Machine learning
-
-Generated on: 2024-01-01T12:00:00Z
-Total questions: 20
-
-| # | Question | Related_Chunk_IDs |
-|---|----------|------------------|
-| 1 | What is machine learning? | c0001 |
-| 2 | How does supervised learning work? | c0003 |
-```
-
-## Production Deployment
-
-### Docker Compose (Recommended)
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-services:
-  backend:
-    build: ./backend
-    environment:
-      - APP_ENV=prod
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    volumes:
-      - ./data:/app/data
-  
-  frontend:
-    build: ./frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-```
-
-### Environment-Specific Configurations
-- **Development**: Live reload, debug logging, CORS enabled
-- **Production**: Optimized builds, error monitoring, security headers
+**Project Structure:**
+- `backend/` - FastAPI Python application
+- `frontend/` - React TypeScript application
+- `docker-compose.yml` - Full application setup
 
 ## Troubleshooting
 
-### Common Issues
+**Common Issues:**
+- **OpenAI API errors**: Check your API key and billing status
+- **Memory issues**: Try smaller chunk sizes for very large articles
+- **File permissions**: Ensure the data directory is writable
 
-**OpenAI API Errors:**
-- Verify your API key is correct
-- Check rate limits and billing
-- Ensure model availability
+**Getting Help:**
+- Check the API documentation at `/docs`
+- Review log files in the data directory
+- Verify your `.env` configuration
 
-**Memory Issues:**
-- Reduce chunk_size for large articles
-- Lower total_questions
-- Process articles sequentially
+## Author
 
-**File Permissions:**
-- Ensure DATA_DIR is writable
-- Check Docker volume mounts
-
-### Monitoring
-- Health check: `GET /health`
-- Logs: Check `logs.ndjson` files
-- Metrics: Monitor API response times
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes with tests
-4. Run quality checks (`make lint test`)
-5. Submit a pull request
+Created by [Your Name] - feel free to contribute or report issues.
 
 ## License
 
-MIT License - see LICENSE file for details.
+This project is open source and available under the [MIT License](LICENSE).
 
-## Support
-
-- API Documentation: http://localhost:8000/docs
-- Issues: GitHub Issues
-- Discussions: GitHub Discussions 
+You are free to use, modify, and distribute this software for any purpose, including commercial use. See the LICENSE file for full details. 
