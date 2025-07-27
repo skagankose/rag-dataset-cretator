@@ -7,19 +7,34 @@ import {
   MagnifyingGlassIcon,
   ClipboardDocumentIcon,
   ChevronLeftIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline'
 
-import { getDataset, getFileUrl, downloadFile, downloadDatasetJson } from '../lib/api'
+import { getDataset, getFileUrl, downloadFile, downloadDatasetJson, getChunks } from '../lib/api'
 
 function DatasetPage() {
   const { articleId } = useParams<{ articleId: string }>()
   const [searchQuery, setSearchQuery] = useState('')
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set())
 
   const { data: dataset, isLoading } = useQuery({
     queryKey: ['dataset', articleId],
     queryFn: () => getDataset(articleId!),
     enabled: !!articleId,
   })
+
+  const { data: chunks = [] } = useQuery({
+    queryKey: ['chunks', articleId],
+    queryFn: () => getChunks(articleId!),
+    enabled: !!articleId,
+  })
+
+  // Create a map for quick chunk lookup
+  const chunksMap = chunks.reduce((acc: Record<string, any>, chunk: any) => {
+    acc[chunk.id] = chunk
+    return acc
+  }, {} as Record<string, any>)
 
   const filteredItems = dataset?.items.filter(item =>
     item.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -52,6 +67,18 @@ function DatasetPage() {
     } catch (error) {
       toast.error('Failed to copy to clipboard')
     }
+  }
+
+  const toggleQuestionExpansion = (questionIndex: number) => {
+    setExpandedQuestions((prev: Set<number>) => {
+      const newSet = new Set(prev)
+      if (newSet.has(questionIndex)) {
+        newSet.delete(questionIndex)
+      } else {
+        newSet.add(questionIndex)
+      }
+      return newSet
+    })
   }
 
   if (isLoading) {
@@ -173,40 +200,98 @@ function DatasetPage() {
             {/* Questions List */}
             <div className="space-y-4">
               {filteredItems.map((item, index) => (
-                <div key={index} className="border border-gray-600 rounded-xl p-6 hover:bg-gray-700 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start space-x-4 flex-1 min-w-0">
-                      <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-blue-900 text-blue-200 text-sm font-medium flex-shrink-0">
-                        {index + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white mb-3 leading-relaxed">
-                          {item.question}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-gray-400 flex-shrink-0">
-                            Related chunks:
-                          </span>
-                          {item.related_chunk_ids.map((chunkId) => (
-                            <span
-                              key={chunkId}
-                              className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-600 text-gray-200"
-                            >
-                              {chunkId}
+                <div key={index} className="border border-gray-600 rounded-xl overflow-hidden">
+                  {/* Clickable question row */}
+                  <div 
+                    className="p-6 hover:bg-gray-700 transition-colors cursor-pointer"
+                    onClick={() => toggleQuestionExpansion(index)}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start space-x-4 flex-1 min-w-0">
+                        <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-blue-900 text-blue-200 text-sm font-medium flex-shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white mb-3 leading-relaxed">
+                            {item.question}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-gray-400 flex-shrink-0">
+                              Related chunks:
                             </span>
-                          ))}
+                            {item.related_chunk_ids.map((chunkId) => (
+                              <span
+                                key={chunkId}
+                                className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-600 text-gray-200"
+                              >
+                                {chunkId}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            copyToClipboard(item.question)
+                          }}
+                          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-600 rounded-lg transition-colors"
+                          title="Copy question"
+                        >
+                          <ClipboardDocumentIcon className="h-4 w-4" />
+                        </button>
+                        <div className="p-2">
+                          {expandedQuestions.has(index) ? (
+                            <ChevronUpIcon className="h-4 w-4 text-gray-400" />
+                          ) : (
+                            <ChevronDownIcon className="h-4 w-4 text-gray-400" />
+                          )}
                         </div>
                       </div>
                     </div>
-                    
-                    <button
-                      onClick={() => copyToClipboard(item.question)}
-                      className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-600 rounded-lg transition-colors"
-                      title="Copy question"
-                    >
-                      <ClipboardDocumentIcon className="h-4 w-4" />
-                    </button>
                   </div>
+                  
+                  {/* Expanded chunk content */}
+                  {expandedQuestions.has(index) && (
+                    <div className="border-t border-gray-600 p-6 bg-gray-800">
+                      <div className="space-y-4">
+                        {item.related_chunk_ids.map((chunkId) => {
+                          const chunk = chunksMap[chunkId]
+                          if (!chunk) return null
+                          
+                          return (
+                            <div 
+                              key={chunkId} 
+                              className="bg-gray-700 border border-gray-600 rounded-lg p-4"
+                            >
+                              <div className="mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-blue-300">
+                                    Chunk: {chunkId}
+                                  </span>
+                                  {chunk.section && (
+                                    <span className="text-xs text-gray-400">
+                                      • {chunk.section}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-300 leading-relaxed max-h-40 overflow-y-auto">
+                                {chunk.content}
+                              </div>
+                              {chunk.heading_path && chunk.heading_path !== 'Lead' && (
+                                <div className="mt-2 text-xs text-gray-500">
+                                  Path: {chunk.heading_path}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               
