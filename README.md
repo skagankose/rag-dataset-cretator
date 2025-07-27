@@ -117,6 +117,7 @@ BACKEND_PORT=8051
 ## TODO
 
 **Planned Improvements:**
+- **Fix Bulk Processing Issue** - It sometimes stuck when processing articles in bulk and requires page refresh
 - **Add Gemini CLI support** - Integrate Google's Gemini models as an alternative to OpenAI
 - **Improve question generation prompting**:
   1. Each question should be related to more chunks (cross-chunk relationships)
