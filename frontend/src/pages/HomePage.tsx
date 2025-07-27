@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import JSZip from 'jszip'
@@ -21,9 +21,20 @@ import type { IngestOptions } from '../types/api'
 
 function HomePage() {
   const [url, setUrl] = useState('')
+  const [bulkUrls, setBulkUrls] = useState('')
+  const [randomArticleCount, setRandomArticleCount] = useState(5)
   const [currentRunId, setCurrentRunId] = useState<string | null>(null)
   const [isLoadingRandomArticle, setIsLoadingRandomArticle] = useState(false)
+  const [isLoadingRandomBulk, setIsLoadingRandomBulk] = useState(false)
   const [selectedArticles, setSelectedArticles] = useState<string[]>([])
+  const [bulkProcessing, setBulkProcessing] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ 
+    submitted: 0, 
+    completed: 0, 
+    total: 0, 
+    currentUrl: '',
+    processingArticles: new Map()
+  })
   const [options, setOptions] = useState<Partial<IngestOptions>>({
     chunk_size: 1000,
     chunk_overlap: 200,
@@ -33,6 +44,8 @@ function HomePage() {
     reingest: false,
   })
 
+  const queryClient = useQueryClient()
+  
   const { data: articles = [], refetch: refetchArticles } = useQuery({
     queryKey: ['articles'],
     queryFn: getArticles,
@@ -46,6 +59,7 @@ function HomePage() {
       setCurrentRunId(data.run_id)
       if (data.status === 'existing') {
         toast.success('Article already exists!')
+        queryClient.invalidateQueries({ queryKey: ['articles'] })
         refetchArticles()
       }
     },
@@ -117,6 +131,46 @@ function HomePage() {
       setSelectedArticles([])
     } else {
       setSelectedArticles(articles.map(article => article.id))
+    }
+  }
+
+  const handleDeleteSelectedArticles = async () => {
+    if (selectedArticles.length === 0) {
+      toast.error('No articles selected for deletion')
+      return
+    }
+
+    const selectedTitles = articles
+      .filter(article => selectedArticles.includes(article.id))
+      .map(article => article.title)
+      .join(', ')
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedArticles.length} selected article(s)?\n\n${selectedTitles}\n\nThis will permanently remove the articles and all related files including chunks and datasets.`
+    )
+    
+    if (!confirmed) return
+
+    try {
+      toast.loading(`Deleting ${selectedArticles.length} articles...`)
+      
+      // Delete all selected articles in parallel
+      const deletePromises = selectedArticles.map(articleId => 
+        deleteMutation.mutateAsync(articleId)
+      )
+
+      await Promise.all(deletePromises)
+      
+      // Clear selection after successful deletion
+      setSelectedArticles([])
+      
+      toast.dismiss()
+      toast.success(`Successfully deleted ${selectedArticles.length} articles!`)
+      refetchArticles()
+    } catch (error) {
+      toast.dismiss()
+      toast.error(`Failed to delete some articles: ${error.message}`)
+      console.error('Bulk delete error:', error)
     }
   }
 
@@ -271,6 +325,188 @@ function HomePage() {
     }
   }
 
+  const handleBulkProcessing = async () => {
+    if (!bulkUrls.trim()) {
+      toast.error('Please enter Wikipedia URLs')
+      return
+    }
+
+    // Parse URLs from comma-separated input
+    const urls = bulkUrls
+      .split(',')
+      .map(url => url.trim())
+      .filter(url => url.length > 0)
+
+    if (urls.length === 0) {
+      toast.error('Please enter valid Wikipedia URLs')
+      return
+    }
+
+    setBulkProcessing(true)
+    setBulkProgress({ 
+      submitted: 0, 
+      completed: 0, 
+      total: urls.length, 
+      currentUrl: '',
+      processingArticles: new Map()
+    })
+
+    try {
+      let successCount = 0
+      let errorCount = 0
+      const processingArticles = new Map()
+
+      // Step 1: Submit all articles for processing
+      for (let i = 0; i < urls.length; i++) {
+        const currentUrl = urls[i]
+        setBulkProgress(prev => ({ 
+          ...prev, 
+          submitted: i + 1, 
+          currentUrl: `Submitting: ${currentUrl}` 
+        }))
+
+        try {
+          const response = await startIngestion({
+            wikipedia_url: currentUrl,
+            options,
+          })
+
+          if (response.status === 'started') {
+            processingArticles.set(response.run_id, {
+              url: currentUrl,
+              status: 'processing',
+              runId: response.run_id
+            })
+            successCount++
+          } else if (response.status === 'existing') {
+            successCount++
+            setBulkProgress(prev => ({ 
+              ...prev, 
+              completed: prev.completed + 1 
+            }))
+          }
+        } catch (error) {
+          console.error(`Failed to process ${currentUrl}:`, error)
+          errorCount++
+          setBulkProgress(prev => ({ 
+            ...prev, 
+            completed: prev.completed + 1 
+          }))
+        }
+
+        // Small delay between requests
+        if (i < urls.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+
+      // Step 2: Monitor processing completion
+      const monitorCompletion = () => {
+        return new Promise((resolve) => {
+          const checkInterval = setInterval(async () => {
+            const activeProcessing = Array.from(processingArticles.values())
+              .filter(article => article.status === 'processing')
+
+            if (activeProcessing.length === 0) {
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+
+            // Check articles list to see if new articles have appeared
+            try {
+              const currentArticles = await getArticles()
+              let newCompletions = 0
+
+              processingArticles.forEach((article, runId) => {
+                if (article.status === 'processing') {
+                  // Check if this article now exists in the articles list
+                  const found = currentArticles.some(a => 
+                    a.url === article.url || a.title.toLowerCase().includes(
+                      article.url.split('/').pop()?.replace(/_/g, ' ').toLowerCase() || ''
+                    )
+                  )
+                  
+                  if (found) {
+                    article.status = 'completed'
+                    newCompletions++
+                  }
+                }
+              })
+
+              if (newCompletions > 0) {
+                setBulkProgress(prev => ({ 
+                  ...prev, 
+                  completed: prev.completed + newCompletions,
+                  currentUrl: `Completed ${prev.completed + newCompletions}/${prev.total} articles`
+                }))
+              }
+            } catch (error) {
+              console.error('Error checking article completion:', error)
+            }
+          }, 2000) // Check every 2 seconds
+
+          // Timeout after 5 minutes
+          setTimeout(() => {
+            clearInterval(checkInterval)
+            resolve(null)
+          }, 300000)
+        })
+      }
+
+      // Wait for all processing to complete
+      if (processingArticles.size > 0) {
+        setBulkProgress(prev => ({ 
+          ...prev, 
+          currentUrl: 'Waiting for articles to complete processing...' 
+        }))
+        await monitorCompletion()
+      }
+
+      setBulkProcessing(false)
+      setBulkProgress({ 
+        submitted: 0, 
+        completed: 0, 
+        total: 0, 
+        currentUrl: '',
+        processingArticles: new Map()
+      })
+
+      if (successCount > 0) {
+        // Invalidate and refetch articles immediately
+        queryClient.invalidateQueries({ queryKey: ['articles'] })
+        
+        // Poll for updates to ensure articles appear
+        const pollForUpdates = async (attempts = 0) => {
+          if (attempts < 10) { // Max 10 attempts (20 seconds)
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            await refetchArticles()
+            
+            // Continue polling if needed
+            setTimeout(() => pollForUpdates(attempts + 1), 2000)
+          }
+        }
+        
+        pollForUpdates()
+        setBulkUrls('')
+        toast.success(`Successfully processed ${successCount} articles!${errorCount > 0 ? ` ${errorCount} failed.` : ''} Refreshing articles list...`)
+      } else {
+        toast.error('Failed to process any articles')
+      }
+    } catch (error) {
+      setBulkProcessing(false)
+      setBulkProgress({ 
+        submitted: 0, 
+        completed: 0, 
+        total: 0, 
+        currentUrl: '',
+        processingArticles: new Map()
+      })
+      toast.error('Bulk processing failed')
+      console.error('Bulk processing error:', error)
+    }
+  }
+
   const fetchRandomArticle = async () => {
     setIsLoadingRandomArticle(true)
     try {
@@ -288,6 +524,42 @@ function HomePage() {
       console.error('Random article fetch error:', error)
     } finally {
       setIsLoadingRandomArticle(false)
+    }
+  }
+
+  const fetchRandomBulkArticles = async () => {
+    if (randomArticleCount < 1 || randomArticleCount > 20) {
+      toast.error('Please enter a number between 1 and 20')
+      return
+    }
+
+    setIsLoadingRandomBulk(true)
+    try {
+      toast.loading(`Fetching ${randomArticleCount} random articles...`)
+      
+      const fetchPromises = Array.from({ length: randomArticleCount }, async () => {
+        const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary')
+        if (!response.ok) {
+          throw new Error('Failed to fetch random article')
+        }
+        const data = await response.json()
+        return `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title.replace(/ /g, '_'))}`
+      })
+
+      const randomUrls = await Promise.all(fetchPromises)
+      
+      // Replace existing bulk URLs
+      const newUrls = randomUrls.join(', ')
+      setBulkUrls(newUrls)
+      
+      toast.dismiss()
+      toast.success(`Added ${randomArticleCount} random articles to bulk processing!`)
+    } catch (error) {
+      toast.dismiss()
+      toast.error('Failed to fetch random articles')
+      console.error('Random bulk articles fetch error:', error)
+    } finally {
+      setIsLoadingRandomBulk(false)
     }
   }
 
@@ -314,6 +586,7 @@ function HomePage() {
       setTimeout(() => {
         setCurrentRunId(null)
         if (isDone) {
+          queryClient.invalidateQueries({ queryKey: ['articles'] })
           refetchArticles()
           setUrl('')
           toast.success('Article processing completed!')
@@ -516,22 +789,33 @@ function HomePage() {
                   </button>
                 )}
               </div>
-              <button
-                onClick={handleDownloadAllArticles}
-                disabled={selectedArticles.length === 0}
-                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-                title={`Download ${selectedArticles.length} selected articles`}
-              >
-                <ArrowDownTrayIcon className="h-4 w-4" />
-                <span>Download Selected ({selectedArticles.length})</span>
-              </button>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleDownloadAllArticles}
+                  disabled={selectedArticles.length === 0}
+                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  title={`Download ${selectedArticles.length} selected articles`}
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  <span>Download Selected ({selectedArticles.length})</span>
+                </button>
+                <button
+                  onClick={handleDeleteSelectedArticles}
+                  disabled={selectedArticles.length === 0}
+                  className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  title={`Delete ${selectedArticles.length} selected articles`}
+                >
+                  <TrashIcon className="h-4 w-4" />
+                  <span>Delete Selected ({selectedArticles.length})</span>
+                </button>
+              </div>
             </div>
             
             {articles.length === 0 ? (
               <div className="text-center py-16">
                 <DocumentTextIcon className="h-12 w-12 text-gray-600 mx-auto mb-4" />
                 <p className="text-gray-400">
-                  No articles processed yet. Add a Wikipedia URL above to get started.
+                  No articles processed yet. Add a Wikipedia URL to get started.
                 </p>
               </div>
             ) : (
@@ -588,23 +872,129 @@ function HomePage() {
                         <ChatBubbleLeftRightIcon className="h-4 w-4" />
                         <span>Question</span>
                       </Link>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteArticle(article.id, article.title)
-                        }}
-                        disabled={deleteMutation.isPending}
-                        className="text-sm text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1 font-medium"
-                        title="Delete article"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                        <span>Delete</span>
-                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Bulk Processing Section */}
+        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+          <div className="p-8">
+            <h2 className="text-xl font-medium text-white mb-6">
+              Bulk Process Articles
+            </h2>
+            
+            <div className="space-y-6">
+              {/* Random Articles Generator */}
+              <div className="bg-gray-700 rounded-xl p-4">
+                <h3 className="text-sm font-medium text-white mb-3">
+                  Add Random Articles
+                </h3>
+                <div className="flex items-end space-x-3">
+                  <div>
+                    <label htmlFor="random-count" className="block text-xs font-medium text-gray-400 mb-2">
+                      Number of articles (1-20)
+                    </label>
+                    <input
+                      type="number"
+                      id="random-count"
+                      min="1"
+                      max="20"
+                      value={randomArticleCount}
+                      onChange={(e) => setRandomArticleCount(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-800 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isLoadingRandomBulk || bulkProcessing || isProcessing}
+                    />
+                  </div>
+                  <button
+                    onClick={fetchRandomBulkArticles}
+                    disabled={isLoadingRandomBulk || bulkProcessing || isProcessing}
+                    className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center space-x-2 h-15"
+                  >
+                    <ArrowPathIcon className={`h-4 w-4 ${isLoadingRandomBulk ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingRandomBulk ? 'Fetching...' : 'Add Random'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="bulk-urls" className="block text-sm font-medium text-gray-300 mb-3">
+                  Wikipedia URLs (separated by commas)
+                </label>
+                <textarea
+                  id="bulk-urls"
+                  rows={4}
+                  value={bulkUrls}
+                  onChange={(e) => setBulkUrls(e.target.value)}
+                  placeholder="https://en.wikipedia.org/wiki/Machine_learning, https://en.wikipedia.org/wiki/Artificial_intelligence, https://en.wikipedia.org/wiki/Neural_network"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  disabled={bulkProcessing || isProcessing}
+                />
+                <p className="mt-2 text-xs text-gray-400">
+                  Enter multiple Wikipedia URLs separated by commas, or use the random article generator above. Uses the same settings as above.
+                </p>
+              </div>
+
+                             {/* Bulk Processing Progress */}
+               {bulkProcessing && (
+                 <div className="bg-gray-700 rounded-xl p-4">
+                   <div className="flex items-center justify-between mb-3">
+                     <span className="text-sm font-medium text-white">
+                       Processing Articles ({bulkProgress.completed}/{bulkProgress.total} completed)
+                     </span>
+                     <span className="text-xs text-gray-400">
+                       {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
+                     </span>
+                   </div>
+                   
+                   {/* Submission Progress */}
+                   <div className="mb-2">
+                     <div className="flex justify-between text-xs text-gray-400 mb-1">
+                       <span>Submitted: {bulkProgress.submitted}/{bulkProgress.total}</span>
+                     </div>
+                     <div className="w-full bg-gray-600 rounded-full h-1">
+                       <div 
+                         className="bg-yellow-500 h-1 rounded-full transition-all duration-300"
+                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.submitted / bulkProgress.total) * 100 : 0}%` }}
+                       />
+                     </div>
+                   </div>
+                   
+                   {/* Completion Progress */}
+                   <div className="mb-3">
+                     <div className="flex justify-between text-xs text-gray-400 mb-1">
+                       <span>Completed: {bulkProgress.completed}/{bulkProgress.total}</span>
+                     </div>
+                     <div className="w-full bg-gray-600 rounded-full h-2">
+                       <div 
+                         className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.completed / bulkProgress.total) * 100 : 0}%` }}
+                       />
+                     </div>
+                   </div>
+                   
+                   {bulkProgress.currentUrl && (
+                     <p className="text-xs text-gray-400 truncate">
+                       Status: {bulkProgress.currentUrl}
+                     </p>
+                   )}
+                 </div>
+               )}
+
+                             <button
+                 onClick={handleBulkProcessing}
+                 disabled={bulkProcessing || isProcessing || !bulkUrls.trim()}
+                 className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+               >
+                 {bulkProcessing ? 
+                   `Processing... (${bulkProgress.completed}/${bulkProgress.total} completed)` : 
+                   'Process All Articles'
+                 }
+               </button>
+            </div>
           </div>
         </div>
       </div>
