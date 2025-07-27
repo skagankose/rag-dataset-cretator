@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=dev
+      - BACKEND_PORT=8000
+      - DATA_DIR=/app/data
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4o}
+      - OPENAI_TIMEOUT=${OPENAI_TIMEOUT:-60}
+      - OPENAI_MAX_RETRIES=${OPENAI_MAX_RETRIES:-5}
+      - DEFAULT_CHUNK_SIZE=${DEFAULT_CHUNK_SIZE:-1200}
+      - DEFAULT_CHUNK_OVERLAP=${DEFAULT_CHUNK_OVERLAP:-200}
+      - DEFAULT_TOTAL_QUESTIONS=${DEFAULT_TOTAL_QUESTIONS:-10}
+      - STRIP_SECTIONS=${STRIP_SECTIONS:-true}
+    volumes:
+      - ./backend:/app
+      - ./backend/data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    command: npm run dev -- --host
+
+ 

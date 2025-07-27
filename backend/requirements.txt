@@ -1,0 +1,29 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+httpx==0.25.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+markdown==3.5.1
+openai==1.6.1
+python-multipart==0.0.6
+sse-starlette==1.8.2
+PyYAML==6.0.1
+
+# Text processing
+spacy==3.7.2
+nltk==3.8.1
+
+# Development and testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+ruff==0.1.7
+black==23.11.0
+mypy==1.7.1
+types-requests==2.31.0.10
+
+# Utilities
+aiofiles==23.2.1
+python-dotenv==1.0.0
+tenacity==8.2.3 
