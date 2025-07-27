@@ -20,7 +20,8 @@
     "clsx": "^2.0.0",
     "react-hot-toast": "^2.4.1",
     "@tanstack/react-virtual": "^3.0.0",
-    "eventsource-parser": "^1.1.2"
+    "eventsource-parser": "^1.1.2",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",

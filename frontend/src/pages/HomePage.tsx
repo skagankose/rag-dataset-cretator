@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import JSZip from 'jszip'
 import { 
   DocumentTextIcon,
   ClockIcon,
@@ -11,9 +12,10 @@ import {
   TrashIcon,
   RectangleStackIcon,
   ChatBubbleLeftRightIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 
-import { startIngestion, getArticles, deleteArticle } from '../lib/api'
+import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks } from '../lib/api'
 import { useIngestStream } from '../hooks/useIngestStream'
 import type { IngestOptions } from '../types/api'
 
@@ -21,6 +23,7 @@ function HomePage() {
   const [url, setUrl] = useState('')
   const [currentRunId, setCurrentRunId] = useState<string | null>(null)
   const [isLoadingRandomArticle, setIsLoadingRandomArticle] = useState(false)
+  const [selectedArticles, setSelectedArticles] = useState<string[]>([])
   const [options, setOptions] = useState<Partial<IngestOptions>>({
     chunk_size: 1000,
     chunk_overlap: 200,
@@ -69,6 +72,202 @@ function HomePage() {
     
     if (confirmed) {
       deleteMutation.mutate(articleId)
+    }
+  }
+
+  const handleDownloadArticle = async (articleId: string, articleTitle: string) => {
+    try {
+      toast.loading('Downloading article...')
+      const blob = await downloadFile(articleId, 'article.md')
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      
+      // Create safe filename
+      const safeTitle = articleTitle.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+      link.download = `${safeTitle}_article.md`
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      toast.dismiss()
+      toast.success('Article downloaded successfully!')
+    } catch (error) {
+      toast.dismiss()
+      toast.error(`Failed to download article: ${error.message}`)
+      console.error('Download error:', error)
+    }
+  }
+
+  const handleArticleSelection = (articleId: string) => {
+    setSelectedArticles(prev => 
+      prev.includes(articleId) 
+        ? prev.filter(id => id !== articleId)
+        : [...prev, articleId]
+    )
+  }
+
+  const handleSelectAll = () => {
+    if (selectedArticles.length === articles.length) {
+      setSelectedArticles([])
+    } else {
+      setSelectedArticles(articles.map(article => article.id))
+    }
+  }
+
+  const handleDownloadAllArticles = async () => {
+    if (selectedArticles.length === 0) {
+      toast.error('No articles selected for download')
+      return
+    }
+
+    const selectedArticlesList = articles.filter(article => selectedArticles.includes(article.id))
+
+    try {
+      toast.loading(`Downloading ${selectedArticles.length} complete article datasets...`)
+      
+      // Download selected articles with complete data in parallel
+      const downloadPromises = selectedArticlesList.map(async (article) => {
+        try {
+          // Fetch article content, chunks, and dataset in parallel
+          const [articleBlob, chunks, dataset] = await Promise.all([
+            downloadFile(article.id, 'article.md'),
+            getChunks(article.id),
+            getDataset(article.id)
+          ])
+          
+          const articleContent = await articleBlob.text()
+          
+          const comprehensiveData = {
+            article: {
+              id: article.id,
+              title: article.title,
+              url: article.url,
+              lang: article.lang,
+              created_at: article.created_at,
+              content: articleContent
+            },
+            chunks: chunks,
+            questions: {
+              total_questions: dataset.total_questions,
+              items: dataset.items
+            },
+            metadata: {
+              export_date: new Date().toISOString(),
+              content_format: 'markdown',
+              total_chunks: chunks.length,
+              description: 'Complete article dataset including content, chunks, and generated questions'
+            }
+          }
+          
+          const dataStr = JSON.stringify(comprehensiveData, null, 2)
+          const dataBlob = new Blob([dataStr], { type: 'application/json' })
+          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+          
+          return {
+            blob: dataBlob,
+            filename: `${safeTitle}_complete.json`,
+            title: article.title
+          }
+        } catch (error) {
+          // Fallback to article content only if dataset/chunks fetch fails
+          try {
+            const articleBlob = await downloadFile(article.id, 'article.md')
+            const articleContent = await articleBlob.text()
+            
+            const fallbackData = {
+              article: {
+                id: article.id,
+                title: article.title,
+                url: article.url,
+                lang: article.lang,
+                created_at: article.created_at,
+                content: articleContent
+              },
+              metadata: {
+                export_date: new Date().toISOString(),
+                content_format: 'markdown',
+                error: 'Chunks and questions could not be fetched'
+              }
+            }
+            
+            const dataStr = JSON.stringify(fallbackData, null, 2)
+            const dataBlob = new Blob([dataStr], { type: 'application/json' })
+            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+            
+            return {
+              blob: dataBlob,
+              filename: `${safeTitle}_partial.json`,
+              title: article.title
+            }
+          } catch (fallbackError) {
+            // Final fallback with metadata only
+            const metadataOnlyData = {
+              article: {
+                id: article.id,
+                title: article.title,
+                url: article.url,
+                lang: article.lang,
+                created_at: article.created_at
+              },
+              metadata: {
+                export_date: new Date().toISOString(),
+                error: 'Content and questions could not be fetched'
+              }
+            }
+            
+            const dataStr = JSON.stringify(metadataOnlyData, null, 2)
+            const dataBlob = new Blob([dataStr], { type: 'application/json' })
+            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+            
+            return {
+              blob: dataBlob,
+              filename: `${safeTitle}_metadata.json`,
+              title: article.title
+            }
+          }
+        }
+      })
+
+      const downloads = await Promise.all(downloadPromises)
+      
+      // Create ZIP file containing all JSON files
+      const zip = new JSZip()
+      
+      // Add each JSON file to the ZIP
+      downloads.forEach(({ blob, filename }) => {
+        zip.file(filename, blob)
+      })
+      
+      // Generate ZIP file
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      
+      // Create safe filename for the ZIP
+      const currentDate = new Date().toISOString().split('T')[0]
+      const zipFilename = `articles_export_${currentDate}_${downloads.length}_files.zip`
+      
+      // Download ZIP file
+      const url = window.URL.createObjectURL(zipBlob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = zipFilename
+      
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      toast.dismiss()
+      toast.success(`Successfully downloaded ZIP file with ${downloads.length} complete datasets!`)
+    } catch (error) {
+      toast.dismiss()
+      toast.error(`Failed to download articles: ${error.message}`)
+      console.error('Bulk download error:', error)
     }
   }
 
@@ -241,32 +440,53 @@ function HomePage() {
                 Processing Progress
               </h3>
               
-              <div className="space-y-4">
-                {events.map((event, index) => (
-                  <div key={index} className="flex items-start space-x-4 p-4 rounded-xl bg-gray-700">
-                    <div className="flex-shrink-0 mt-0.5">
-                      {event.stage === 'FAILED' ? (
+              {/* Single Progress Row */}
+              {events.length > 0 && (
+                <div className="space-y-4">
+                  {/* Progress Bar */}
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full transition-all duration-500 ${
+                        lastEvent?.stage === 'FAILED' ? 'bg-red-500' : 
+                        lastEvent?.stage === 'DONE' ? 'bg-green-500' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${(events.length / (events.length + (lastEvent?.stage === 'DONE' ? 0 : 1))) * 100}%` }}
+                    />
+                  </div>
+                  
+                  {/* Current Step */}
+                  <div className="flex items-center space-x-4 p-4 rounded-xl bg-gray-700">
+                    <div className="flex-shrink-0">
+                      {lastEvent?.stage === 'FAILED' ? (
                         <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-                      ) : event.stage === 'DONE' ? (
+                      ) : lastEvent?.stage === 'DONE' ? (
                         <CheckCircleIcon className="h-5 w-5 text-green-500" />
                       ) : (
-                        <ClockIcon className="h-5 w-5 text-blue-500" />
+                        <div className="flex items-center space-x-2">
+                          <ClockIcon className="h-5 w-5 text-blue-500" />
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                        </div>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white">
-                        {event.stage}
-                      </p>
+                      <div className="flex items-center space-x-2">
+                        <p className="text-sm font-medium text-white">
+                          {lastEvent?.stage || 'Starting...'}
+                        </p>
+                        <span className="text-xs text-gray-400">
+                          ({events.length} step{events.length !== 1 ? 's' : ''} completed)
+                        </span>
+                      </div>
                       <p className="text-sm text-gray-300 mt-1">
-                        {event.message}
+                        {lastEvent?.message || 'Initializing...'}
                       </p>
                     </div>
                     <div className="text-xs text-gray-400 flex-shrink-0">
-                      {new Date(event.timestamp * 1000).toLocaleTimeString()}
+                      {lastEvent && new Date(lastEvent.timestamp * 1000).toLocaleTimeString()}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
 
               {error && (
                 <div className="mt-6 p-4 bg-red-900/20 border border-red-800 rounded-xl">
@@ -282,9 +502,30 @@ function HomePage() {
         {/* Articles List */}
         <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
           <div className="p-8">
-            <h2 className="text-xl font-medium text-white mb-6">
-              Recent Articles
-            </h2>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-4">
+                <h2 className="text-xl font-medium text-white">
+                  Recent Articles
+                </h2>
+                {articles.length > 0 && (
+                  <button
+                    onClick={handleSelectAll}
+                    className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                  >
+                    {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={handleDownloadAllArticles}
+                disabled={selectedArticles.length === 0}
+                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                title={`Download ${selectedArticles.length} selected articles`}
+              >
+                <ArrowDownTrayIcon className="h-4 w-4" />
+                <span>Download Selected ({selectedArticles.length})</span>
+              </button>
+            </div>
             
             {articles.length === 0 ? (
               <div className="text-center py-16">
@@ -296,8 +537,28 @@ function HomePage() {
             ) : (
               <div className="space-y-3">
                 {articles.slice(0, 10).map((article) => (
-                  <div key={article.id} className="group flex items-center justify-between p-4 rounded-xl border border-gray-700 hover:bg-gray-700 transition-colors">
+                  <div 
+                    key={article.id} 
+                    onClick={() => handleArticleSelection(article.id)}
+                    className={`group flex items-center justify-between p-4 rounded-xl border transition-colors cursor-pointer ${
+                      selectedArticles.includes(article.id) 
+                        ? 'border-blue-500 bg-blue-900/20' 
+                        : 'border-gray-700 hover:bg-gray-700'
+                    }`}
+                  >
                     <div className="flex items-center space-x-4 min-w-0 flex-1">
+                      <div className="flex-shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedArticles.includes(article.id)}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            handleArticleSelection(article.id)
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                        />
+                      </div>
                       <div className="flex-shrink-0">
                         <DocumentTextIcon className="h-5 w-5 text-gray-400" />
                       </div>
@@ -313,6 +574,7 @@ function HomePage() {
                     <div className="flex items-center space-x-3 opacity-70 group-hover:opacity-100 transition-opacity">
                       <Link
                         to={`/articles/${article.id}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="text-sm text-blue-400 hover:text-blue-300 flex items-center space-x-1 font-medium"
                       >
                         <RectangleStackIcon className="h-4 w-4" />
@@ -320,13 +582,17 @@ function HomePage() {
                       </Link>
                       <Link
                         to={`/dataset/${article.id}`}
+                        onClick={(e) => e.stopPropagation()}
                         className="text-sm text-green-400 hover:text-green-300 flex items-center space-x-1 font-medium"
                       >
                         <ChatBubbleLeftRightIcon className="h-4 w-4" />
                         <span>Question</span>
                       </Link>
                       <button
-                        onClick={() => handleDeleteArticle(article.id, article.title)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteArticle(article.id, article.title)
+                        }}
                         disabled={deleteMutation.isPending}
                         className="text-sm text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1 font-medium"
                         title="Delete article"
