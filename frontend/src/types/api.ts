@@ -65,7 +65,9 @@ export interface ChunkListItem {
 
 export interface DatasetItem {
   question: string
+  answer: string
   related_chunk_ids: string[]
+  category: string
 }
 
 export interface DatasetResponse {

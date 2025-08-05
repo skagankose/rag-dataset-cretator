@@ -54,7 +54,7 @@ class TextSplitter(ABC):
         self.chunk_overlap = chunk_overlap
     
     @abstractmethod
-    def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
+    def split_text(self, text: str, sections: List[Dict] = None, article_id: str = None) -> List[ChunkInfo]:
         """Split text into chunks."""
         pass
 
@@ -79,7 +79,7 @@ class RecursiveTextSplitter(TextSplitter):
             "",        # Characters
         ]
     
-    def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
+    def split_text(self, text: str, sections: List[Dict] = None, article_id: str = None) -> List[ChunkInfo]:
         """Split text recursively trying to preserve natural boundaries."""
         logger.info(f"Splitting text with recursive strategy: {len(text)} chars")
         
@@ -109,7 +109,8 @@ class RecursiveTextSplitter(TextSplitter):
                         current_chunk,
                         current_start,
                         current_start + len(current_chunk),
-                        sections
+                        sections,
+                        article_id
                     )
                     chunks.append(chunk)
                     chunk_index += 1
@@ -128,7 +129,8 @@ class RecursiveTextSplitter(TextSplitter):
                 current_chunk,
                 current_start,
                 current_start + len(current_chunk),
-                sections
+                sections,
+                article_id
             )
             chunks.append(chunk)
         
@@ -172,10 +174,11 @@ class RecursiveTextSplitter(TextSplitter):
         content: str,
         start_char: int,
         end_char: int,
-        sections: List[Dict]
+        sections: List[Dict],
+        article_id: str = None
     ) -> ChunkInfo:
         """Create a chunk with metadata."""
-        chunk_id = generate_chunk_id(index)
+        chunk_id = generate_chunk_id(index, article_id)
         
         # Find the section this chunk belongs to
         section = ""
@@ -212,7 +215,7 @@ class SentenceTextSplitter(TextSplitter):
             except OSError:
                 logger.warning("spaCy model not found, falling back to simple sentence splitting")
     
-    def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
+    def split_text(self, text: str, sections: List[Dict] = None, article_id: str = None) -> List[ChunkInfo]:
         """Split text by sentences."""
         logger.info(f"Splitting text with sentence strategy: {len(text)} chars")
         
@@ -249,7 +252,8 @@ class SentenceTextSplitter(TextSplitter):
                         chunk_content,
                         start_char,
                         end_char,
-                        sections
+                        sections,
+                        article_id
                     )
                     chunks.append(chunk)
                     chunk_index += 1
@@ -274,7 +278,8 @@ class SentenceTextSplitter(TextSplitter):
                 chunk_content,
                 start_char,
                 end_char,
-                sections
+                sections,
+                article_id
             )
             chunks.append(chunk)
         
@@ -316,10 +321,11 @@ class SentenceTextSplitter(TextSplitter):
         content: str,
         start_char: int,
         end_char: int,
-        sections: List[Dict]
+        sections: List[Dict],
+        article_id: str = None
     ) -> ChunkInfo:
         """Create a chunk with metadata."""
-        chunk_id = generate_chunk_id(index)
+        chunk_id = generate_chunk_id(index, article_id)
         
         # Find the section this chunk belongs to
         section = ""
@@ -366,7 +372,7 @@ class HeaderAwareTextSplitter(TextSplitter):
             "",        # Characters
         ]
     
-    def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
+    def split_text(self, text: str, sections: List[Dict] = None, article_id: str = None) -> List[ChunkInfo]:
         """Split text by header sections only, creating one chunk per section regardless of size."""
         logger.info(f"Splitting text with header-aware strategy: {len(text)} chars")
         
@@ -381,7 +387,7 @@ class HeaderAwareTextSplitter(TextSplitter):
         chunk_index = 0
         
         for section in text_sections:
-            section_chunks = self._split_section(section, chunk_index, sections)
+            section_chunks = self._split_section(section, chunk_index, sections, article_id)
             chunks.extend(section_chunks)
             chunk_index += len(section_chunks)
         
@@ -438,7 +444,7 @@ class HeaderAwareTextSplitter(TextSplitter):
         
         return sections
     
-    def _split_section(self, section: Dict, start_chunk_index: int, metadata_sections: List[Dict]) -> List[ChunkInfo]:
+    def _split_section(self, section: Dict, start_chunk_index: int, metadata_sections: List[Dict], article_id: str = None) -> List[ChunkInfo]:
         """Split section into chunks, keeping small sections as single chunks."""
         content = section['content']
         header = section['header']
@@ -454,7 +460,8 @@ class HeaderAwareTextSplitter(TextSplitter):
                 section_start,
                 section['end_pos'],
                 header,
-                metadata_sections
+                metadata_sections,
+                article_id
             )
             logger.debug(f"Section '{header}' fits in chunk size, keeping as single chunk")
             return [chunk]
@@ -478,7 +485,8 @@ class HeaderAwareTextSplitter(TextSplitter):
                 section_start,
                 section_start + split_pos,
                 header,
-                metadata_sections
+                metadata_sections,
+                article_id
             )
             chunks.append(chunk)
             chunk_index += 1
@@ -506,7 +514,8 @@ class HeaderAwareTextSplitter(TextSplitter):
                     abs_start,
                     abs_end,
                     header,
-                    metadata_sections
+                    metadata_sections,
+                    article_id
                 )
                 chunks.append(chunk)
                 chunk_index += 1
@@ -547,10 +556,11 @@ class HeaderAwareTextSplitter(TextSplitter):
         start_char: int,
         end_char: int,
         header: str,
-        metadata_sections: List[Dict]
+        metadata_sections: List[Dict],
+        article_id: str = None
     ) -> ChunkInfo:
         """Create a chunk with header information."""
-        chunk_id = generate_chunk_id(index)
+        chunk_id = generate_chunk_id(index, article_id)
         
         # Find the section this chunk belongs to from metadata
         section = header
@@ -610,8 +620,9 @@ def split_content(
     sections: List[Dict],
     strategy: str = "header_aware",
     chunk_size: int = 1200,
-    chunk_overlap: int = 200
+    chunk_overlap: int = 200,
+    article_id: str = None
 ) -> List[ChunkInfo]:
     """Convenience function to split content."""
     splitter = create_text_splitter(strategy, chunk_size, chunk_overlap)
-    return splitter.split_text(content, sections) 
+    return splitter.split_text(content, sections, article_id) 

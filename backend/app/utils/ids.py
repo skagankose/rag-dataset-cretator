@@ -10,16 +10,25 @@ def generate_run_id() -> str:
     return f"run_{uuid.uuid4().hex[:8]}"
 
 
-def generate_chunk_id(index: int) -> str:
-    """Generate a deterministic chunk ID from index."""
+def generate_chunk_id(index: int, article_id: str = None) -> str:
+    """Generate a deterministic chunk ID from index with optional article_id prefix."""
+    if article_id:
+        return f"{article_id}_c{index:04d}"
     return f"c{index:04d}"
 
 
 def parse_chunk_id(chunk_id: str) -> int:
     """Parse chunk index from chunk ID."""
+    # Handle both old format (c0001) and new format (article_id_c0001)
     match = re.match(r'c(\d+)', chunk_id)
     if match:
         return int(match.group(1))
+    
+    # Try to match new format with article_id prefix
+    match = re.match(r'.*_c(\d+)', chunk_id)
+    if match:
+        return int(match.group(1))
+    
     raise ValueError(f"Invalid chunk ID format: {chunk_id}")
 
 

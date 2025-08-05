@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -13,6 +13,8 @@ import {
   RectangleStackIcon,
   ChatBubbleLeftRightIcon,
   ArrowDownTrayIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline'
 
 import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks } from '../lib/api'
@@ -35,14 +37,19 @@ function HomePage() {
     currentUrl: '',
     processingArticles: new Map()
   })
+  const [shouldStopBulkProcessing, setShouldStopBulkProcessing] = useState(false)
   const [options, setOptions] = useState<Partial<IngestOptions>>({
     chunk_size: 1000,
     chunk_overlap: 200,
     split_strategy: 'header_aware',
     total_questions: 2,
-    llm_model: 'gpt-4o-mini',
+    // llm_model will be set automatically by backend based on provider
     reingest: false,
   })
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
 
   const queryClient = useQueryClient()
   
@@ -52,6 +59,33 @@ function HomePage() {
   })
 
   const { events, isConnected, error, lastEvent } = useIngestStream(currentRunId)
+
+  // Pagination logic
+  const totalPages = Math.ceil(articles.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const currentArticles = articles.slice(startIndex, endIndex)
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  // Reset to first page when articles change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [articles.length])
 
   const ingestMutation = useMutation({
     mutationFn: startIngestion,
@@ -99,9 +133,8 @@ function HomePage() {
       const link = document.createElement('a')
       link.href = url
       
-      // Create safe filename
-      const safeTitle = articleTitle.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-      link.download = `${safeTitle}_article.md`
+      // Create filename using article ID
+      link.download = `${articleId}_article.md`
       
       // Trigger download
       document.body.appendChild(link)
@@ -221,11 +254,9 @@ function HomePage() {
           
           const dataStr = JSON.stringify(comprehensiveData, null, 2)
           const dataBlob = new Blob([dataStr], { type: 'application/json' })
-          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-          
           return {
             blob: dataBlob,
-            filename: `${safeTitle}_complete.json`,
+            filename: `${article.id}.json`,
             title: article.title
           }
         } catch (error) {
@@ -252,11 +283,9 @@ function HomePage() {
             
             const dataStr = JSON.stringify(fallbackData, null, 2)
             const dataBlob = new Blob([dataStr], { type: 'application/json' })
-            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-            
             return {
               blob: dataBlob,
-              filename: `${safeTitle}_partial.json`,
+              filename: `${article.id}_partial.json`,
               title: article.title
             }
           } catch (fallbackError) {
@@ -277,11 +306,9 @@ function HomePage() {
             
             const dataStr = JSON.stringify(metadataOnlyData, null, 2)
             const dataBlob = new Blob([dataStr], { type: 'application/json' })
-            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-            
             return {
               blob: dataBlob,
-              filename: `${safeTitle}_metadata.json`,
+              filename: `${article.id}_metadata.json`,
               title: article.title
             }
           }
@@ -325,7 +352,28 @@ function HomePage() {
     }
   }
 
+  const handleStopBulkProcessing = () => {
+    setShouldStopBulkProcessing(true)
+    setBulkProcessing(false)
+    setBulkProgress({ 
+      submitted: 0, 
+      completed: 0, 
+      total: 0, 
+      currentUrl: '',
+      processingArticles: new Map()
+    })
+    setShouldStopBulkProcessing(false)
+    
+    // Refresh the page to ensure clean state
+    window.location.reload()
+  }
+
   const handleBulkProcessing = async () => {
+    if (bulkProcessing) {
+      toast.error('Bulk processing is already in progress')
+      return
+    }
+
     if (!bulkUrls.trim()) {
       toast.error('Please enter Wikipedia URLs')
       return
@@ -342,7 +390,24 @@ function HomePage() {
       return
     }
 
+    // Validate URLs format
+    const invalidUrls = urls.filter(url => {
+      try {
+        const urlObj = new URL(url)
+        return !urlObj.hostname.includes('wikipedia.org')
+      } catch {
+        return true
+      }
+    })
+
+    if (invalidUrls.length > 0) {
+      const firstInvalid = invalidUrls[0]
+      toast.error(`Invalid Wikipedia URL found: "${firstInvalid}". Please ensure all URLs are valid Wikipedia links.`, { duration: 6000 })
+      return
+    }
+
     setBulkProcessing(true)
+    setShouldStopBulkProcessing(false)
     setBulkProgress({ 
       submitted: 0, 
       completed: 0, 
@@ -358,6 +423,12 @@ function HomePage() {
 
       // Step 1: Submit all articles for processing
       for (let i = 0; i < urls.length; i++) {
+        // Check if user wants to stop processing
+        if (shouldStopBulkProcessing) {
+          toast.info('Bulk processing stopped by user')
+          break
+        }
+
         const currentUrl = urls[i]
         setBulkProgress(prev => ({ 
           ...prev, 
@@ -375,7 +446,8 @@ function HomePage() {
             processingArticles.set(response.run_id, {
               url: currentUrl,
               status: 'processing',
-              runId: response.run_id
+              runId: response.run_id,
+              startTime: Date.now()
             })
             successCount++
           } else if (response.status === 'existing') {
@@ -384,13 +456,38 @@ function HomePage() {
               ...prev, 
               completed: prev.completed + 1 
             }))
+          } else if (response.status === 'failed') {
+            // Handle explicit failure status from backend
+            console.error(`Backend reported failure for ${currentUrl}:`, response.message || 'Unknown error')
+            errorCount++
+            setBulkProgress(prev => ({ 
+              ...prev, 
+              completed: prev.completed + 1,
+              currentUrl: `Failed: ${currentUrl} - ${response.message || 'Article may not exist'}`
+            }))
           }
         } catch (error) {
           console.error(`Failed to process ${currentUrl}:`, error)
+          
+          // Determine error type for better user feedback
+          let errorMessage = 'Unknown error'
+          if (error.message) {
+            if (error.message.includes('404') || error.message.includes('not found')) {
+              errorMessage = 'Article not found'
+            } else if (error.message.includes('network') || error.message.includes('fetch')) {
+              errorMessage = 'Network error'
+            } else if (error.message.includes('timeout')) {
+              errorMessage = 'Request timeout'
+            } else {
+              errorMessage = error.message
+            }
+          }
+          
           errorCount++
           setBulkProgress(prev => ({ 
             ...prev, 
-            completed: prev.completed + 1 
+            completed: prev.completed + 1,
+            currentUrl: `Failed: ${currentUrl} - ${errorMessage}`
           }))
         }
 
@@ -400,10 +497,21 @@ function HomePage() {
         }
       }
 
-      // Step 2: Monitor processing completion
+      // Step 2: Monitor processing completion with timeout handling
       const monitorCompletion = () => {
         return new Promise((resolve) => {
+          const startTime = Date.now()
+          const maxTimeout = 300000 // 5 minutes total timeout
+          const articleTimeout = 60000 // 1 minute per article timeout
+
           const checkInterval = setInterval(async () => {
+            // Check if user wants to stop processing
+            if (shouldStopBulkProcessing) {
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+
             const activeProcessing = Array.from(processingArticles.values())
               .filter(article => article.status === 'processing')
 
@@ -412,6 +520,25 @@ function HomePage() {
               resolve(null)
               return
             }
+
+            // Check for articles that have been processing too long (likely failed)
+            const now = Date.now()
+            let timedOutArticles = 0
+
+            processingArticles.forEach((article, runId) => {
+              if (article.status === 'processing') {
+                const processingTime = now - (article.startTime || now)
+                
+                // If article has been processing for more than 1 minute, consider it failed
+                if (processingTime > articleTimeout) {
+                  console.warn(`Article timed out after ${processingTime}ms: ${article.url}`)
+                  article.status = 'failed'
+                  article.error = 'Processing timeout - article may not exist or failed to process'
+                  timedOutArticles++
+                  errorCount++
+                }
+              }
+            })
 
             // Check articles list to see if new articles have appeared
             try {
@@ -434,23 +561,46 @@ function HomePage() {
                 }
               })
 
-              if (newCompletions > 0) {
+              const totalNewCompletions = newCompletions + timedOutArticles
+              if (totalNewCompletions > 0) {
                 setBulkProgress(prev => ({ 
                   ...prev, 
-                  completed: prev.completed + newCompletions,
-                  currentUrl: `Completed ${prev.completed + newCompletions}/${prev.total} articles`
+                  completed: prev.completed + totalNewCompletions,
+                  currentUrl: `Completed ${prev.completed + totalNewCompletions}/${prev.total} articles${timedOutArticles > 0 ? ` (${timedOutArticles} failed/timed out)` : ''}`
                 }))
               }
             } catch (error) {
               console.error('Error checking article completion:', error)
             }
-          }, 2000) // Check every 2 seconds
 
-          // Timeout after 5 minutes
-          setTimeout(() => {
-            clearInterval(checkInterval)
-            resolve(null)
-          }, 300000)
+            // Global timeout - stop monitoring after 5 minutes regardless
+            if (now - startTime > maxTimeout) {
+              console.warn('Global timeout reached, stopping bulk processing monitor')
+              
+              // Mark any remaining processing articles as failed
+              let remainingArticles = 0
+              processingArticles.forEach((article, runId) => {
+                if (article.status === 'processing') {
+                  article.status = 'failed'
+                  article.error = 'Global timeout reached'
+                  remainingArticles++
+                  errorCount++
+                }
+              })
+
+              if (remainingArticles > 0) {
+                setBulkProgress(prev => ({ 
+                  ...prev, 
+                  completed: prev.completed + remainingArticles,
+                  currentUrl: `Timeout reached - marked ${remainingArticles} remaining articles as failed`
+                }))
+              }
+
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+          }, 2000) // Check every 2 seconds
         })
       }
 
@@ -458,7 +608,7 @@ function HomePage() {
       if (processingArticles.size > 0) {
         setBulkProgress(prev => ({ 
           ...prev, 
-          currentUrl: 'Waiting for articles to complete processing...' 
+          currentUrl: `Waiting for ${processingArticles.size} articles to complete processing...` 
         }))
         await monitorCompletion()
       }
@@ -472,7 +622,14 @@ function HomePage() {
         processingArticles: new Map()
       })
 
-      if (successCount > 0) {
+      // Count final results
+      const totalProcessed = successCount + errorCount
+      const actualSuccesses = Array.from(processingArticles.values())
+        .filter(article => article.status === 'completed').length
+      const actualFailures = Array.from(processingArticles.values())
+        .filter(article => article.status === 'failed').length
+
+      if (successCount > 0 || actualSuccesses > 0) {
         // Invalidate and refetch articles immediately
         queryClient.invalidateQueries({ queryKey: ['articles'] })
         
@@ -489,9 +646,20 @@ function HomePage() {
         
         pollForUpdates()
         setBulkUrls('')
-        toast.success(`Successfully processed ${successCount} articles!${errorCount > 0 ? ` ${errorCount} failed.` : ''} Refreshing articles list...`)
+        
+        // Provide detailed status message
+        const totalErrors = errorCount + actualFailures
+        if (totalErrors > 0) {
+          toast.success(
+            `Bulk processing completed! ${actualSuccesses || successCount} articles processed successfully. ${totalErrors} failed (may be non-existent articles or network errors). Refreshing articles list...`,
+            { duration: 6000 }
+          )
+        } else {
+          toast.success(`Successfully processed all ${actualSuccesses || successCount} articles! Refreshing articles list...`)
+        }
       } else {
-        toast.error('Failed to process any articles')
+        const totalAttempted = urls.length
+        toast.error(`Failed to process any of the ${totalAttempted} articles. Please check that the Wikipedia URLs exist and are valid.`, { duration: 6000 })
       }
     } catch (error) {
       setBulkProcessing(false)
@@ -778,15 +946,20 @@ function HomePage() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center space-x-4">
                 <h2 className="text-xl font-medium text-white">
-                  Recent Articles
+                  All Articles
                 </h2>
                 {articles.length > 0 && (
-                  <button
-                    onClick={handleSelectAll}
-                    className="text-sm text-blue-400 hover:text-blue-300 font-medium"
-                  >
-                    {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
-                  </button>
+                  <div className="flex items-center space-x-4">
+                    <span className="text-sm text-gray-400">
+                      {articles.length} total • Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={handleSelectAll}
+                      className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                    >
+                      {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="flex items-center space-x-3">
@@ -820,7 +993,7 @@ function HomePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {articles.slice(0, 10).map((article) => (
+                {currentArticles.map((article) => (
                   <div 
                     key={article.id} 
                     onClick={() => handleArticleSelection(article.id)}
@@ -875,6 +1048,68 @@ function HomePage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            
+            {/* Pagination */}
+            {articles.length > 0 && totalPages > 1 && (
+              <div className="mt-8 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={goToPrevPage}
+                    disabled={currentPage === 1}
+                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeftIcon className="h-4 w-4" />
+                    <span>Previous</span>
+                  </button>
+                  
+                  <div className="flex items-center space-x-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      const isCurrentPage = page === currentPage
+                      const isNearCurrentPage = Math.abs(page - currentPage) <= 2
+                      const isFirstOrLast = page === 1 || page === totalPages
+                      
+                      if (!isNearCurrentPage && !isFirstOrLast) {
+                        if (page === currentPage - 3 || page === currentPage + 3) {
+                          return (
+                            <span key={page} className="px-2 text-gray-500">
+                              ...
+                            </span>
+                          )
+                        }
+                        return null
+                      }
+                      
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => goToPage(page)}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            isCurrentPage
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-300 bg-gray-700 hover:bg-gray-600'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={goToNextPage}
+                    disabled={currentPage === totalPages}
+                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span>Next</span>
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </button>
+                </div>
+                
+                <div className="text-sm text-gray-400">
+                  Showing {startIndex + 1}-{Math.min(endIndex, articles.length)} of {articles.length} articles
+                </div>
               </div>
             )}
           </div>
@@ -945,9 +1180,17 @@ function HomePage() {
                      <span className="text-sm font-medium text-white">
                        Processing Articles ({bulkProgress.completed}/{bulkProgress.total} completed)
                      </span>
-                     <span className="text-xs text-gray-400">
-                       {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
-                     </span>
+                     <div className="flex items-center space-x-3">
+                       <span className="text-xs text-gray-400">
+                         {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
+                       </span>
+                       <button
+                         onClick={handleStopBulkProcessing}
+                         className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-700"
+                       >
+                         Stop Processing
+                       </button>
+                     </div>
                    </div>
                    
                    {/* Submission Progress */}

@@ -61,8 +61,37 @@ class SplittingError(IngestionError):
 class LLMError(AppError):
     """LLM related error."""
     
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, 
+        message: str, 
+        details: Optional[Dict[str, Any]] = None,
+        response_data: Optional[Dict[str, Any]] = None,
+        provider: Optional[str] = None,
+    ):
         super().__init__(message, "LLM_ERROR", details)
+        self.response_data = response_data or {}
+        self.provider = provider
+        
+    def get_detailed_message(self) -> str:
+        """Get detailed error message including response data for logging."""
+        msg_parts = [f"LLM Error ({self.provider or 'unknown'}): {self.message}"]
+        
+        if self.response_data:
+            msg_parts.append("Response data:")
+            for key, value in self.response_data.items():
+                if key == "content" and value:
+                    # Truncate long content for readability
+                    content = str(value)[:500] + "..." if len(str(value)) > 500 else str(value)
+                    msg_parts.append(f"  {key}: {content}")
+                elif key in ["model", "finish_reason", "usage", "error_type", "error_code"]:
+                    msg_parts.append(f"  {key}: {value}")
+                    
+        if self.details:
+            msg_parts.append("Additional details:")
+            for key, value in self.details.items():
+                msg_parts.append(f"  {key}: {value}")
+                
+        return "\n".join(msg_parts)
 
 
 class StorageError(AppError):

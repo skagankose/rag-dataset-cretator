@@ -5,32 +5,38 @@ from typing import Dict, List
 
 def get_question_generation_system_prompt() -> str:
     """Get the system prompt for question generation."""
-    return """You are an expert at generating high-quality questions for RAG (Retrieval-Augmented Generation) datasets.
+    return """You are an expert at generating high-quality question-answer pairs for RAG (Retrieval-Augmented Generation) datasets.
 
-Your task is to generate concise, factual questions that can be answered from the provided text chunks. Questions can be based on:
+Your task is to generate concise, factual questions with accurate answers that can be answered from the provided text chunks. Questions can be based on:
 1. Single chunks - questions answerable from one chunk alone
 2. Multiple chunks - questions requiring information from multiple related chunks
 
+Each question must be categorized into one of these three categories:
+1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
 Requirements:
-1. Questions must be answerable from ONLY the provided text chunks
+1. Questions and answers must be based ONLY on the provided text chunks
 2. Do not invent facts or include information not in the text
 3. Focus on key facts, concepts, relationships, and connections
 4. For multi-chunk questions, focus on relationships, comparisons, or broader concepts that span chunks
 5. Prefer specific questions over general ones
 6. Avoid questions that require outside knowledge
 7. Make questions clear and unambiguous
-8. Do not include the answers in your response
-9. Do not mention about chunk in questions (e.g. as described in following chunks)
+8. Provide complete, accurate answers based solely on the chunk content
+9. Do not mention chunks or **text** or **context** in questions or answers (e.g. "as described in following chunks", "What is the definition of code refactoring provided in the text?")
+10. Categorize each question appropriately based on the type of cognitive task required
 
 Return your response as a JSON object with this exact structure:
 {
   "questions": [
-    {"question": "Single-chunk question?", "related_chunk_ids": ["chunk_id"]},
-    {"question": "Multi-chunk question requiring synthesis?", "related_chunk_ids": ["chunk_id1", "chunk_id2"]}
+    {"question": "Single-chunk question?", "answer": "Complete answer based on the chunk content.", "related_chunk_ids": ["chunk_id"], "category": "FACTUAL"},
+    {"question": "Multi-chunk question requiring synthesis?", "answer": "Complete answer synthesizing information from multiple chunks.", "related_chunk_ids": ["chunk_id1", "chunk_id2"], "category": "INTERPRETATION"}
   ]
 }
 
-Include ALL chunk IDs needed to answer each question in the "related_chunk_ids" array."""
+IMPORTANT: The "related_chunk_ids" field must contain ONLY the exact chunk IDs provided in the prompt (e.g., "article123_c0001", "article123_c0002"). Do NOT include any text fragments, partial answers, or other content in this field. Only include the chunk IDs that are needed to answer each question."""
 
 
 def get_question_generation_user_prompt(
@@ -76,21 +82,26 @@ These chunks are consecutive and related. Generate questions that:
 2. Are about connections, relationships, or broader concepts across chunks
 3. Cannot be answered from any single chunk alone
 
+Each question must be categorized into one of these three categories:
+1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
 Chunks:
 {chunks_text}
 
 Return valid JSON with this structure:
 {{
   "questions": [
-    {{"question": "Question requiring multiple chunks?", "related_chunk_ids": {chunk_ids}}}
+    {{"question": "Question requiring multiple chunks?", "answer": "Complete answer synthesizing information from multiple chunks.", "related_chunk_ids": {chunk_ids}, "category": "INTERPRETATION"}}
   ]
 }}
 
-The "related_chunk_ids" should include all chunk IDs that are needed to answer each question."""
+IMPORTANT: The "related_chunk_ids" field must contain ONLY the exact chunk IDs from the list above (e.g., "article123_c0001", "article123_c0002"). Do NOT include any text fragments, partial answers, or other content in this field. Only include the chunk IDs that are needed to answer each question."""
 
 
 def validate_question_response(response: Dict) -> bool:
-    """Validate the structure of a question generation response."""
+    """Validate question generation response format."""
     if not isinstance(response, dict):
         return False
     
@@ -101,22 +112,34 @@ def validate_question_response(response: Dict) -> bool:
     if not isinstance(questions, list):
         return False
     
+    valid_categories = {"FACTUAL", "INTERPRETATION", "LONG_ANSWER"}
+    
     for question in questions:
         if not isinstance(question, dict):
             return False
         
-        if "question" not in question or "related_chunk_ids" not in question:
+        # Check required fields
+        if "question" not in question or "answer" not in question or "related_chunk_ids" not in question or "category" not in question:
             return False
         
         if not isinstance(question["question"], str):
+            return False
+            
+        if not isinstance(question["answer"], str):
             return False
         
         if not isinstance(question["related_chunk_ids"], list):
             return False
         
-        # Check that all chunk IDs are strings
-        for chunk_id in question["related_chunk_ids"]:
-            if not isinstance(chunk_id, str):
-                return False
+        if not isinstance(question["category"], str):
+            return False
+        
+        # Check that category is valid
+        if question["category"] not in valid_categories:
+            return False
+        
+        # Check that chunk IDs are strings
+        if not all(isinstance(chunk_id, str) for chunk_id in question["related_chunk_ids"]):
+            return False
     
     return True 

@@ -1,26 +1,38 @@
 """Question generation using OpenAI chat completion."""
 
+import asyncio
 import math
 import random
 from typing import List, Dict, Any, Tuple
 
 from ..core.errors import LLMError
-from ..core.logging import get_logger
+from ..core.logging import get_logger, log_llm_error
 from ..ingest.split import ChunkInfo
-from .openai_chat import openai_chat
+from .factory import get_chat_provider
 from .prompts import (
     get_question_generation_system_prompt,
     validate_question_response,
 )
+from ..utils.validation import validate_and_clean_questions
 
 logger = get_logger("llm.questions")
 
 
 class QuestionGenerator:
-    """Generates questions from text chunks using OpenAI."""
+    """Generates questions from text chunks using LLM providers."""
     
     def __init__(self, model: str = None):
-        self.model = model
+        # Get the appropriate model based on the provider if none specified
+        if model is None:
+            from ..core.config import settings
+            if settings.llm_provider == "openai":
+                self.model = settings.openai_chat_model
+            elif settings.llm_provider == "gemini":
+                self.model = settings.gemini_chat_model
+            else:
+                self.model = None
+        else:
+            self.model = model
     
     def _create_chunk_groups(self, chunks: List[ChunkInfo], total_questions: int) -> List[Tuple[List[ChunkInfo], int]]:
         """Create groups of chunks and determine how many questions to generate for each group."""
@@ -32,8 +44,8 @@ class QuestionGenerator:
         
         # Calculate distribution
         num_chunks = len(chunks)
-        single_chunk_ratio = 0.6  # 60% single-chunk questions
-        multi_chunk_ratio = 0.4   # 40% multi-chunk questions
+        single_chunk_ratio = 0.3  # 30% single-chunk questions
+        multi_chunk_ratio = 0.7   # 70% multi-chunk questions
         
         single_questions = max(1, int(total_questions * single_chunk_ratio))
         multi_questions = total_questions - single_questions
@@ -183,26 +195,43 @@ class QuestionGenerator:
             ]
             
             # Generate completion
-            response = await openai_chat.generate_json_completion(
+            chat_provider = get_chat_provider()
+            response = await chat_provider.generate_json_completion(
                 messages=messages,
                 model=self.model,
                 temperature=0.1,
-                max_tokens=1000,
+                max_tokens=100000,
             )
             
             # Validate and extract questions
             parsed_response = response["parsed_content"]
             
             if not validate_question_response(parsed_response):
-                raise LLMError("Invalid question response format")
+                response_data = {
+                    "content": response.get("content"),
+                    "parsed_content": parsed_response,
+                    "model": response.get("model"),
+                    "validation_error": "Invalid question response format"
+                }
+                log_llm_error(logger, "Invalid question response format", "unknown", response_data)
+                raise LLMError("Invalid question response format", response_data=response_data)
             
             questions = parsed_response["questions"]
             
-            # Ensure chunk IDs are correct
-            for question in questions:
-                question["related_chunk_ids"] = chunk_ids
+            # Clean and validate chunk IDs
+            questions = validate_and_clean_questions(questions)
             
+            # For questions that have no valid chunk IDs after cleaning, use the expected chunk IDs
+            for question in questions:
+                if not question.get("related_chunk_ids"):
+                    question["related_chunk_ids"] = chunk_ids
+
             logger.info(f"Generated {len(questions)} questions for chunk group of {len(chunk_group)} chunks")
+            
+            # Add 3-second delay to prevent rate limits
+            logger.debug("Adding 3-second delay to prevent rate limits")
+            await asyncio.sleep(3)
+            
             return questions
             
         except Exception as e:
@@ -211,22 +240,31 @@ class QuestionGenerator:
             section = chunk_group[0].section if chunk_group else "this topic"
             return [{
                 "question": f"What information is provided about {section}?",
-                "related_chunk_ids": [chunk.id for chunk in chunk_group]
+                "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                "related_chunk_ids": [chunk.id for chunk in chunk_group],
+                "category": "LONG_ANSWER"
             }]
     
     def _create_single_chunk_prompt(self, chunk: ChunkInfo, num_questions: int, context_info: str) -> str:
         """Create prompt for single-chunk questions."""
-        return f"""Generate exactly {num_questions} question(s) that can be answered from this text chunk:
+        return f"""Generate exactly {num_questions} question-answer pair(s) that can be answered from this text chunk:
 
 Chunk ID: {chunk.id}{context_info}
 
 Text:
 {chunk.content}
 
+Each question must be categorized into one of these three categories:
+1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
 Requirements:
 - Only ask about information explicitly stated in this text
 - Make questions specific and factual
 - Each question should be answerable from this chunk alone
+- Provide complete, accurate answers based solely on the chunk content
+- Categorize each question appropriately based on the type of cognitive task required
 - Return valid JSON with the specified structure"""
     
     def _create_multi_chunk_prompt(self, chunks: List[ChunkInfo], num_questions: int, context_info: str) -> str:
@@ -237,12 +275,17 @@ Requirements:
         
         chunk_ids = [chunk.id for chunk in chunks]
         
-        return f"""Generate exactly {num_questions} question(s) that require information from multiple chunks below.
+        return f"""Generate exactly {num_questions} question-answer pair(s) that require information from multiple chunks below.
 
 These chunks are related. Generate questions that:
 1. Require information from at least 2 of the provided chunks
 2. Are about connections, relationships, comparisons, or broader concepts across chunks
 3. Cannot be answered from any single chunk alone{context_info}
+
+Each question must be categorized into one of these three categories:
+1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
 
 Chunks:
 {chunks_text}
@@ -250,6 +293,8 @@ Chunks:
 Requirements:
 - Focus on relationships and connections between the chunks
 - Make questions that require synthesis of information
+- Provide complete answers that synthesize information from multiple chunks
+- Categorize each question appropriately based on the type of cognitive task required
 - Return valid JSON with chunk IDs {chunk_ids} in related_chunk_ids"""
     
     async def generate_questions_for_chunks(
@@ -274,9 +319,16 @@ Requirements:
             try:
                 questions = await self._generate_questions_for_group(chunk_group, num_questions)
                 all_questions.extend(questions)
+            except LLMError as e:
+                # Log the detailed LLM error
+                logger.error(f"LLM Error generating questions for chunk group: {e.get_detailed_message()}")
+                continue
             except Exception as e:
                 logger.error(f"Failed to generate questions for chunk group: {e}")
                 continue
+        
+        # Final validation and cleaning of all questions
+        all_questions = validate_and_clean_questions(all_questions)
         
         logger.info(f"Generated {len(all_questions)} total questions")
         return all_questions

@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..core.errors import IngestionError
+from ..core.errors import IngestionError, LLMError
 from ..core.logging import get_logger
 from ..llm.questions import generate_questions_for_chunks
 from ..schemas.ingest import IngestOptions
@@ -23,6 +23,7 @@ from ..storage.md import (
 from ..storage.paths import paths
 from ..utils.ids import format_chunk_ids, generate_run_id
 from ..utils.text import count_tokens_estimate, extract_preview, normalize_title
+from ..utils.filtering import filter_chunks
 from .clean import clean_wikipedia_html
 from .fetch import fetch_wikipedia_article
 from .split import split_content, ChunkInfo
@@ -113,13 +114,21 @@ class IngestionPipeline:
                 strategy=options.split_strategy,
                 chunk_size=options.chunk_size,
                 chunk_overlap=options.chunk_overlap,
+                article_id=article_id,
             )
             
+            # Filter out unwanted chunks
+            original_chunk_count = len(chunks)
+            chunks = filter_chunks(chunks)
+            filtered_chunk_count = len(chunks)
+            
             await progress.splitting(
-                f"Created {len(chunks)} chunks",
+                f"Created {original_chunk_count} chunks, filtered to {filtered_chunk_count}",
                 article_id=article_id,
                 details={
-                    "num_chunks": len(chunks),
+                    "num_chunks": filtered_chunk_count,
+                    "original_chunks": original_chunk_count,
+                    "filtered_out": original_chunk_count - filtered_chunk_count,
                     "strategy": options.split_strategy,
                     "chunk_size": options.chunk_size,
                     "chunk_overlap": options.chunk_overlap
@@ -134,7 +143,8 @@ class IngestionPipeline:
                 cleaned_data=cleaned_data,
                 chunks=chunks,
                 options=options,
-                url_checksum=url_checksum
+                url_checksum=url_checksum,
+                original_chunk_count=original_chunk_count
             )
             
             await progress.write_markdown(
@@ -144,21 +154,39 @@ class IngestionPipeline:
             
             # Step 5: Generate questions
             await progress.question_gen("Generating questions with LLM...")
-            questions = await generate_questions_for_chunks(
-                chunks=chunks,
-                total_questions=options.total_questions,
-                model=options.llm_model,
-            )
-            
-            await progress.question_gen(
-                f"Generated {len(questions)} questions",
-                article_id=article_id,
-                details={
-                    "num_questions": len(questions),
-                    "model": options.llm_model,
-                    "total_questions_requested": options.total_questions
-                }
-            )
+            try:
+                questions = await generate_questions_for_chunks(
+                    chunks=chunks,
+                    total_questions=options.total_questions,
+                    model=options.llm_model,
+                )
+                
+                await progress.question_gen(
+                    f"Generated {len(questions)} questions",
+                    article_id=article_id,
+                    details={
+                        "num_questions": len(questions),
+                        "model": options.llm_model,
+                        "total_questions_requested": options.total_questions
+                    }
+                )
+            except LLMError as e:
+                # Log detailed LLM error and continue with empty questions
+                logger.error(f"LLM Error during question generation: {e.get_detailed_message()}")
+                await progress.question_gen(
+                    f"Failed to generate questions due to LLM error, continuing with empty dataset",
+                    article_id=article_id,
+                    details={"error": str(e), "provider": e.provider}
+                )
+                questions = []
+            except Exception as e:
+                logger.error(f"Unexpected error during question generation: {e}")
+                await progress.question_gen(
+                    f"Failed to generate questions, continuing with empty dataset",
+                    article_id=article_id,
+                    details={"error": str(e)}
+                )
+                questions = []
             
             # Step 6: Write dataset file
             await progress.write_dataset_md("Writing dataset markdown file...")
@@ -185,7 +213,9 @@ class IngestionPipeline:
                 f"Successfully ingested article: {article_data['title']}",
                 article_id=article_id,
                 details={
-                    "total_chunks": len(chunks),
+                    "total_chunks": filtered_chunk_count,
+                    "original_chunks": original_chunk_count,
+                    "filtered_out": original_chunk_count - filtered_chunk_count,
                     "total_questions": len(questions),
                     "processing_time": time.time()
                 }
@@ -196,12 +226,18 @@ class IngestionPipeline:
                 "status": "completed",
                 "run_id": run_id,
                 "stats": {
-                    "chunks": len(chunks),
+                    "chunks": filtered_chunk_count,
+                    "original_chunks": original_chunk_count,
+                    "filtered_out": original_chunk_count - filtered_chunk_count,
                     "questions": len(questions),
                     "word_count": cleaned_data["word_count"],
                 }
             }
             
+        except LLMError as e:
+            logger.error(f"LLM Error during ingestion for {url}: {e.get_detailed_message()}")
+            await progress.failed(f"LLM Error: {str(e)}")
+            raise IngestionError(f"Pipeline failed due to LLM error: {e}") from e
         except Exception as e:
             logger.error(f"Ingestion failed for {url}: {e}")
             await progress.failed(f"Ingestion failed: {str(e)}")
@@ -215,6 +251,7 @@ class IngestionPipeline:
         chunks: List[ChunkInfo],
         options: IngestOptions,
         url_checksum: str,
+        original_chunk_count: int = None,
     ) -> None:
         """Write article.md and chunk files."""
         
@@ -237,6 +274,8 @@ class IngestionPipeline:
                 "word_count": cleaned_data["word_count"],
                 "char_count": cleaned_data["char_count"],
                 "num_chunks": len(chunks),
+                "original_chunks": original_chunk_count if original_chunk_count is not None else len(chunks),
+                "filtered_out": (original_chunk_count - len(chunks)) if original_chunk_count is not None else 0,
                 "num_sections": len(cleaned_data["sections"]),
             }
         }
@@ -307,7 +346,7 @@ class IngestionPipeline:
         """Write dataset.md file."""
         
         # Create table content
-        headers = ["#", "Question", "Related_Chunk_IDs"]
+        headers = ["#", "Question", "Answer", "Category", "Related_Chunk_IDs"]
         rows = []
         
         for i, question in enumerate(questions, 1):
@@ -315,6 +354,8 @@ class IngestionPipeline:
             rows.append([
                 str(i),
                 question["question"],
+                question["answer"],
+                question["category"],
                 chunk_ids_str
             ])
         

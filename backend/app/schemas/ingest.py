@@ -2,7 +2,7 @@
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class IngestOptions(BaseModel):
@@ -11,8 +11,21 @@ class IngestOptions(BaseModel):
     chunk_overlap: int = Field(default=200, ge=0, le=1000)
     split_strategy: Literal["recursive", "sentence", "header_aware"] = Field(default="header_aware")
     total_questions: int = Field(default=10, ge=1, le=50)
-    llm_model: str = Field(default="gpt-4o-mini")
+    llm_model: Optional[str] = Field(default=None)
     reingest: bool = Field(default=False)
+    
+    @model_validator(mode='after')
+    def set_default_model(self):
+        """Set default model based on the configured provider."""
+        if self.llm_model is None:
+            from ..core.config import settings
+            if settings.llm_provider == "openai":
+                self.llm_model = settings.openai_chat_model
+            elif settings.llm_provider == "gemini":
+                self.llm_model = settings.gemini_chat_model
+            else:
+                self.llm_model = "gpt-4o-mini"  # fallback
+        return self
 
 
 class IngestRequest(BaseModel):

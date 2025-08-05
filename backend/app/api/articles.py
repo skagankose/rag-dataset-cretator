@@ -91,8 +91,14 @@ async def list_chunks(article_id: str) -> List[ChunkDetail]:
         
         chunks = []
         
-        # Read each chunk file
-        for chunk_file in sorted(chunks_dir.glob("c*.md")):
+        # Read each chunk file (support both old and new formats)
+        # Get new format files (article_id_c0001.md)
+        new_format_files = list(chunks_dir.glob("*_c*.md"))
+        # Get old format files (c0001.md) - only files that are exactly in old format
+        old_format_files = [f for f in chunks_dir.glob("c*.md") 
+                           if f.name.startswith("c") and "_" not in f.name]
+        chunk_files = new_format_files + old_format_files
+        for chunk_file in sorted(chunk_files):
             try:
                 front_matter, content = read_markdown_file(chunk_file)
                 

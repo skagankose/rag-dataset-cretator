@@ -57,7 +57,9 @@ class ChunkDetail(BaseModel):
 class DatasetItem(BaseModel):
     """Dataset question item."""
     question: str
+    answer: str
     related_chunk_ids: List[str]
+    category: str  # FACTUAL, INTERPRETATION, or LONG_ANSWER
 
 
 class DatasetResponse(BaseModel):

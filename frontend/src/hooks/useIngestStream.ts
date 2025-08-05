@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IngestProgress } from '../types/api'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8051'
+const API_BASE = 'http://172.17.200.54:8051'
 
 interface UseIngestStreamResult {
   events: IngestProgress[]

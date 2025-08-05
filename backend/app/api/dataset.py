@@ -71,9 +71,8 @@ async def download_dataset(article_id: str) -> Response:
         import json
         json_content = json.dumps(dataset_response.model_dump(), indent=2, ensure_ascii=False)
         
-        # Create filename using article title
-        safe_title = re.sub(r'[^a-zA-Z0-9_-]', '_', dataset_response.title.lower())
-        filename = f"{safe_title}_dataset.json"
+        # Create filename using article ID
+        filename = f"{article_id}_dataset.json"
         
         # Return as downloadable file
         return Response(
@@ -128,8 +127,41 @@ def _parse_dataset_markdown(content: str) -> List[DatasetItem]:
                 # Split by | and clean up
                 parts = [part.strip() for part in line.split('|')[1:-1]]  # Remove empty first/last
                 
-                if len(parts) >= 3:
-                    # parts[0] is question number, parts[1] is question, parts[2] is chunk IDs
+                if len(parts) >= 5:
+                    # New format: parts[0] is question number, parts[1] is question, parts[2] is answer, parts[3] is category, parts[4] is chunk IDs
+                    question = parts[1]
+                    answer = parts[2]
+                    category = parts[3]
+                    chunk_ids_str = parts[4]
+                    
+                    # Parse chunk IDs
+                    chunk_ids = parse_chunk_ids(chunk_ids_str)
+                    
+                    if question and answer and chunk_ids:
+                        items.append(DatasetItem(
+                            question=question,
+                            answer=answer,
+                            related_chunk_ids=chunk_ids,
+                            category=category
+                        ))
+                elif len(parts) >= 4:
+                    # Backward compatibility: old format with answers but no category
+                    question = parts[1]
+                    answer = parts[2]
+                    chunk_ids_str = parts[3]
+                    
+                    # Parse chunk IDs
+                    chunk_ids = parse_chunk_ids(chunk_ids_str)
+                    
+                    if question and answer and chunk_ids:
+                        items.append(DatasetItem(
+                            question=question,
+                            answer=answer,
+                            related_chunk_ids=chunk_ids,
+                            category="FACTUAL"  # Default category for backward compatibility
+                        ))
+                elif len(parts) >= 3:
+                    # Backward compatibility: old format without answers or category
                     question = parts[1]
                     chunk_ids_str = parts[2]
                     
@@ -139,7 +171,9 @@ def _parse_dataset_markdown(content: str) -> List[DatasetItem]:
                     if question and chunk_ids:
                         items.append(DatasetItem(
                             question=question,
-                            related_chunk_ids=chunk_ids
+                            answer="",  # Empty answer for backward compatibility
+                            related_chunk_ids=chunk_ids,
+                            category="FACTUAL"  # Default category for backward compatibility
                         ))
                         
             except Exception as e:

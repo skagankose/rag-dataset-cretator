@@ -49,7 +49,7 @@ function DatasetPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${dataset?.title?.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'dataset'}_dataset.json`
+      a.download = `${articleId || 'dataset'}_dataset.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -173,13 +173,13 @@ function DatasetPage() {
           <div className="p-8">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <h2 className="text-xl font-medium text-white">
-                Questions ({dataset.total_questions})
+                Questions & Answers ({dataset.total_questions})
               </h2>
               <button
                 onClick={handleDownloadDataset}
                 className="text-sm text-blue-400 hover:text-blue-300 font-medium self-start sm:self-auto"
               >
-                Download Questions (JSON)
+                Download Q&A (JSON)
               </button>
             </div>
 
@@ -211,51 +211,70 @@ function DatasetPage() {
                         <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-blue-900 text-blue-200 text-sm font-medium flex-shrink-0">
                           {index + 1}
                         </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-white mb-3 leading-relaxed">
-                            {item.question}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs text-gray-400 flex-shrink-0">
-                              Related chunks:
-                            </span>
-                            {item.related_chunk_ids.map((chunkId) => (
-                              <span
-                                key={chunkId}
-                                className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-600 text-gray-200"
-                              >
-                                {chunkId}
+                        <div className="flex-1 min-w-0 space-y-4">
+                          <div>
+                            <p className="text-sm font-medium text-blue-300 mb-2">Question</p>
+                            <p className="text-sm font-medium text-white leading-relaxed">
+                              {item.question}
+                            </p>
+                          </div>
+                          
+                          {item.answer && (
+                            <div>
+                              <p className="text-sm font-medium text-green-300 mb-2">Answer</p>
+                              <p className="text-sm text-gray-300 leading-relaxed">
+                                {item.answer}
+                              </p>
+                            </div>
+                          )}
+                          
+                          <div className="flex flex-wrap items-center gap-4">
+                            {item.category && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-400">Category:</span>
+                                <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
+                                  item.category === 'FACTUAL' ? 'bg-purple-900 text-purple-200' :
+                                  item.category === 'INTERPRETATION' ? 'bg-orange-900 text-orange-200' :
+                                  item.category === 'LONG_ANSWER' ? 'bg-teal-900 text-teal-200' :
+                                  'bg-gray-600 text-gray-200'
+                                }`}>
+                                  {item.category.replace('_', ' ')}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-gray-400 flex-shrink-0">
+                                Related chunks:
                               </span>
-                            ))}
+                              {item.related_chunk_ids.map((chunkId) => (
+                                <span
+                                  key={chunkId}
+                                  className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-600 text-gray-200"
+                                >
+                                  {chunkId}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            copyToClipboard(item.question)
-                          }}
-                          className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-600 rounded-lg transition-colors"
-                          title="Copy question"
-                        >
-                          <ClipboardDocumentIcon className="h-4 w-4" />
-                        </button>
-                        <div className="p-2">
-                          {expandedQuestions.has(index) ? (
-                            <ChevronUpIcon className="h-4 w-4 text-gray-400" />
-                          ) : (
-                            <ChevronDownIcon className="h-4 w-4 text-gray-400" />
-                          )}
-                        </div>
+                      <div className="flex-shrink-0">
+                        {expandedQuestions.has(index) ? (
+                          <ChevronUpIcon className="h-5 w-5 text-gray-400" />
+                        ) : (
+                          <ChevronDownIcon className="h-5 w-5 text-gray-400" />
+                        )}
                       </div>
                     </div>
                   </div>
-                  
-                  {/* Expanded chunk content */}
+
                   {expandedQuestions.has(index) && (
                     <div className="border-t border-gray-600 p-6 bg-gray-800">
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-gray-300 mb-2">
+                          Source Content ({item.related_chunk_ids.length} chunk{item.related_chunk_ids.length !== 1 ? 's' : ''})
+                        </h4>
+                      </div>
                       <div className="space-y-4">
                         {item.related_chunk_ids.map((chunkId) => {
                           const chunk = chunksMap[chunkId]
@@ -322,9 +341,10 @@ function DatasetPage() {
             Dataset Format
           </h3>
           <p className="text-sm text-blue-300 leading-relaxed">
-            This dataset contains {dataset.total_questions} questions generated from the article chunks. 
-            Each question is linked to specific chunk IDs that contain the relevant context. 
-            The dataset can be downloaded as a JSON file with structured data for easy integration.
+            This dataset contains {dataset.total_questions} question-answer pairs generated from the article chunks. 
+            Each question is linked to specific chunk IDs that contain the relevant context, and includes 
+            a complete answer derived from the source content. The dataset can be downloaded as a JSON file 
+            with structured data for easy integration into RAG systems.
           </p>
         </div>
       </div>
