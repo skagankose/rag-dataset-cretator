@@ -1,6 +1,6 @@
 # RAG Dataset Creator
 
-A web application that automatically creates RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. It fetches articles, processes them into chunks, generates questions using AI, and saves everything as structured files ready for machine learning workflows.
+A web application that automatically creates RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. It fetches articles, processes them into chunks, generates questions using LLMs (Gemini or ChatGPT), and saves everything as structured files ready for machine learning workflows.
 
 ## What This Application Does
 
@@ -125,7 +125,7 @@ BACKEND_PORT=8051
 
 ## Author
 
-Created by Kagan Kose - feel free to contribute or report issues.
+Created by S. Kagan Kose - feel free to contribute or report issues.
 
 ## License
 
