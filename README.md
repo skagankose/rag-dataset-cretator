@@ -102,30 +102,14 @@ DEFAULT_TOTAL_QUESTIONS=10
 BACKEND_PORT=8051
 ```
 
-## Troubleshooting
-
-**Common Issues:**
-- **OpenAI API errors**: Check your API key and billing status
-- **Memory issues**: Try smaller chunk sizes for very large articles
-- **File permissions**: Ensure the data directory is writable
-
-**Getting Help:**
-- Check the API documentation at `/docs`
-- Review log files in the data directory
-- Verify your `.env` configuration
-
 ## TODO
 
 **Planned Improvements:**
-- **Fix Bulk Processing Issue** - It sometimes stuck when processing articles in bulk and requires page refresh
 - **Add Gemini CLI support** - Integrate Google's Gemini models as an alternative to OpenAI
 - **Improve question generation prompting**:
   1. Each question should be related to more chunks (cross-chunk relationships)
   2. Generated items don't need to be questions (e.g. they can be commands, tasks, or other prompts)
-
-## Author
-
-Created by S. Kagan Kose - feel free to contribute or report issues.
+- **Fix Bulk Processing Issue** - It sometimes stuck when processing articles in bulk and requires page refresh
 
 ## License
 
