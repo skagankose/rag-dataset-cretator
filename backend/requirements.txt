@@ -13,7 +13,7 @@ sse-starlette==1.8.2
 PyYAML==6.0.1
 
 # Text processing
-spacy==3.7.2
+spacy
 nltk==3.8.1
 
 # Development and testing
