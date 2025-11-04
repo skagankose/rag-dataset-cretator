@@ -143,7 +143,7 @@ class IngestionPipeline:
             )
             
             # Step 5: Generate questions
-            await progress.question_gen("Generating questions with LLM...")
+            await progress.question_gen("Generating questions with LLM, this may take a while...")
             try:
                 questions = await generate_questions_for_chunks(
                     chunks=chunks,
