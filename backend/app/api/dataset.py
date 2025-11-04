@@ -71,8 +71,9 @@ async def download_dataset(article_id: str) -> Response:
         import json
         json_content = json.dumps(dataset_response.model_dump(), indent=2, ensure_ascii=False)
         
-        # Create filename using article ID
-        filename = f"{article_id}_dataset.json"
+        # Create filename using article title
+        safe_title = re.sub(r'[^a-zA-Z0-9_-]', '_', dataset_response.title.lower())
+        filename = f"{safe_title}_dataset.json"
         
         # Return as downloadable file
         return Response(

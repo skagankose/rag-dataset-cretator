@@ -23,7 +23,6 @@ from ..storage.md import (
 from ..storage.paths import paths
 from ..utils.ids import format_chunk_ids, generate_run_id
 from ..utils.text import count_tokens_estimate, extract_preview, normalize_title
-from ..utils.filtering import filter_chunks
 from .clean import clean_wikipedia_html
 from .fetch import fetch_wikipedia_article
 from .split import split_content, ChunkInfo
@@ -114,21 +113,13 @@ class IngestionPipeline:
                 strategy=options.split_strategy,
                 chunk_size=options.chunk_size,
                 chunk_overlap=options.chunk_overlap,
-                article_id=article_id,
             )
             
-            # Filter out unwanted chunks
-            original_chunk_count = len(chunks)
-            chunks = filter_chunks(chunks)
-            filtered_chunk_count = len(chunks)
-            
             await progress.splitting(
-                f"Created {original_chunk_count} chunks, filtered to {filtered_chunk_count}",
+                f"Created {len(chunks)} chunks",
                 article_id=article_id,
                 details={
-                    "num_chunks": filtered_chunk_count,
-                    "original_chunks": original_chunk_count,
-                    "filtered_out": original_chunk_count - filtered_chunk_count,
+                    "num_chunks": len(chunks),
                     "strategy": options.split_strategy,
                     "chunk_size": options.chunk_size,
                     "chunk_overlap": options.chunk_overlap
@@ -143,8 +134,7 @@ class IngestionPipeline:
                 cleaned_data=cleaned_data,
                 chunks=chunks,
                 options=options,
-                url_checksum=url_checksum,
-                original_chunk_count=original_chunk_count
+                url_checksum=url_checksum
             )
             
             await progress.write_markdown(
@@ -213,9 +203,7 @@ class IngestionPipeline:
                 f"Successfully ingested article: {article_data['title']}",
                 article_id=article_id,
                 details={
-                    "total_chunks": filtered_chunk_count,
-                    "original_chunks": original_chunk_count,
-                    "filtered_out": original_chunk_count - filtered_chunk_count,
+                    "total_chunks": len(chunks),
                     "total_questions": len(questions),
                     "processing_time": time.time()
                 }
@@ -226,9 +214,7 @@ class IngestionPipeline:
                 "status": "completed",
                 "run_id": run_id,
                 "stats": {
-                    "chunks": filtered_chunk_count,
-                    "original_chunks": original_chunk_count,
-                    "filtered_out": original_chunk_count - filtered_chunk_count,
+                    "chunks": len(chunks),
                     "questions": len(questions),
                     "word_count": cleaned_data["word_count"],
                 }
@@ -251,7 +237,6 @@ class IngestionPipeline:
         chunks: List[ChunkInfo],
         options: IngestOptions,
         url_checksum: str,
-        original_chunk_count: int = None,
     ) -> None:
         """Write article.md and chunk files."""
         
@@ -274,8 +259,6 @@ class IngestionPipeline:
                 "word_count": cleaned_data["word_count"],
                 "char_count": cleaned_data["char_count"],
                 "num_chunks": len(chunks),
-                "original_chunks": original_chunk_count if original_chunk_count is not None else len(chunks),
-                "filtered_out": (original_chunk_count - len(chunks)) if original_chunk_count is not None else 0,
                 "num_sections": len(cleaned_data["sections"]),
             }
         }

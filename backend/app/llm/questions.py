@@ -13,7 +13,6 @@ from .prompts import (
     get_question_generation_system_prompt,
     validate_question_response,
 )
-from ..utils.validation import validate_and_clean_questions
 
 logger = get_logger("llm.questions")
 
@@ -44,8 +43,8 @@ class QuestionGenerator:
         
         # Calculate distribution
         num_chunks = len(chunks)
-        single_chunk_ratio = 0.3  # 30% single-chunk questions
-        multi_chunk_ratio = 0.7   # 70% multi-chunk questions
+        single_chunk_ratio = 0.6  # 60% single-chunk questions
+        multi_chunk_ratio = 0.4   # 40% multi-chunk questions
         
         single_questions = max(1, int(total_questions * single_chunk_ratio))
         multi_questions = total_questions - single_questions
@@ -200,7 +199,7 @@ class QuestionGenerator:
                 messages=messages,
                 model=self.model,
                 temperature=0.1,
-                max_tokens=100000,
+                max_tokens=1000,
             )
             
             # Validate and extract questions
@@ -218,13 +217,9 @@ class QuestionGenerator:
             
             questions = parsed_response["questions"]
             
-            # Clean and validate chunk IDs
-            questions = validate_and_clean_questions(questions)
-            
-            # For questions that have no valid chunk IDs after cleaning, use the expected chunk IDs
+                        # Ensure chunk IDs are correct
             for question in questions:
-                if not question.get("related_chunk_ids"):
-                    question["related_chunk_ids"] = chunk_ids
+                question["related_chunk_ids"] = chunk_ids
 
             logger.info(f"Generated {len(questions)} questions for chunk group of {len(chunk_group)} chunks")
             
@@ -326,9 +321,6 @@ Requirements:
             except Exception as e:
                 logger.error(f"Failed to generate questions for chunk group: {e}")
                 continue
-        
-        # Final validation and cleaning of all questions
-        all_questions = validate_and_clean_questions(all_questions)
         
         logger.info(f"Generated {len(all_questions)} total questions")
         return all_questions

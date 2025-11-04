@@ -65,20 +65,12 @@ def _get_file_path(article_id: str, filename: str) -> Path | None:
         "raw.html": paths.raw_html_file(article_id),
     }
     
-    # Check for chunk files (both old format c0001.md and new format article_id_c0001.md)
-    if filename.endswith(".md"):
-        # Try new format first (article_id_c0001.md)
-        if "_c" in filename:
-            chunk_id = filename[:-3]  # Remove .md extension
-            chunk_path = paths.chunk_file(article_id, chunk_id)
-            if chunk_path.exists():
-                allowed_files[filename] = chunk_path
-        # Try old format (c0001.md)
-        elif filename.startswith("c"):
-            chunk_id = filename[:-3]  # Remove .md extension
-            chunk_path = paths.chunk_file(article_id, chunk_id)
-            if chunk_path.exists():
-                allowed_files[filename] = chunk_path
+    # Check for chunk files (c0001.md, c0002.md, etc.)
+    if filename.startswith("c") and filename.endswith(".md"):
+        chunk_id = filename[:-3]  # Remove .md extension
+        chunk_path = paths.chunk_file(article_id, chunk_id)
+        if chunk_path.exists():
+            allowed_files[filename] = chunk_path
     
     return allowed_files.get(filename)
 

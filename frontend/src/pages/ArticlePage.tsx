@@ -57,7 +57,7 @@ function ArticlePage() {
     
     const link = document.createElement('a')
     link.href = url
-    link.download = `${article?.id || 'chunks'}_index.json`
+    link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'chunks'}_index.json`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -104,7 +104,7 @@ function ArticlePage() {
       
       const link = document.createElement('a')
       link.href = url
-      link.download = `${article?.id || 'article'}.json`
+      link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_complete.json`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -142,7 +142,7 @@ function ArticlePage() {
         
         const link = document.createElement('a')
         link.href = url
-        link.download = `${article?.id || 'article'}_partial.json`
+        link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_partial.json`
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
@@ -172,7 +172,7 @@ function ArticlePage() {
         
         const link = document.createElement('a')
         link.href = url
-                    link.download = `${article?.id || 'article'}_metadata.json`
+        link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_metadata.json`
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)

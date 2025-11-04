@@ -14,7 +14,7 @@ class ChatProvider(Protocol):
         messages: List[Dict[str, str]],
         model: str = None,
         temperature: float = 0.1,
-        max_tokens: int = 100000,
+        max_tokens: int = 1000,
         response_format: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """Generate chat completion."""
@@ -25,7 +25,7 @@ class ChatProvider(Protocol):
         messages: List[Dict[str, str]],
         model: str = None,
         temperature: float = 0.1,
-        max_tokens: int = 100000,
+        max_tokens: int = 1000,
     ) -> Dict[str, Any]:
         """Generate JSON-formatted completion."""
         ...

@@ -25,7 +25,7 @@ Requirements:
 6. Avoid questions that require outside knowledge
 7. Make questions clear and unambiguous
 8. Provide complete, accurate answers based solely on the chunk content
-9. Do not mention chunks or **text** or **context** in questions or answers (e.g. "as described in following chunks", "What is the definition of code refactoring provided in the text?")
+9. Do not mention chunks in questions or answers (e.g. "as described in following chunks")
 10. Categorize each question appropriately based on the type of cognitive task required
 
 Return your response as a JSON object with this exact structure:
@@ -36,7 +36,7 @@ Return your response as a JSON object with this exact structure:
   ]
 }
 
-IMPORTANT: The "related_chunk_ids" field must contain ONLY the exact chunk IDs provided in the prompt (e.g., "article123_c0001", "article123_c0002"). Do NOT include any text fragments, partial answers, or other content in this field. Only include the chunk IDs that are needed to answer each question."""
+Include ALL chunk IDs needed to answer each question in the "related_chunk_ids" array."""
 
 
 def get_question_generation_user_prompt(
@@ -97,7 +97,7 @@ Return valid JSON with this structure:
   ]
 }}
 
-IMPORTANT: The "related_chunk_ids" field must contain ONLY the exact chunk IDs from the list above (e.g., "article123_c0001", "article123_c0002"). Do NOT include any text fragments, partial answers, or other content in this field. Only include the chunk IDs that are needed to answer each question."""
+The "related_chunk_ids" should include all chunk IDs that are needed to answer each question."""
 
 
 def validate_question_response(response: Dict) -> bool:

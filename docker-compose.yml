@@ -11,10 +11,19 @@ services:
       - APP_ENV=dev
       - BACKEND_PORT=8051
       - DATA_DIR=/app/data
+      # LLM Provider Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      # OpenAI Configuration
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-4o}
       - OPENAI_TIMEOUT=${OPENAI_TIMEOUT:-60}
       - OPENAI_MAX_RETRIES=${OPENAI_MAX_RETRIES:-5}
+      # Gemini Configuration
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_CHAT_MODEL=${GEMINI_CHAT_MODEL:-gemini-1.5-flash}
+      - GEMINI_TIMEOUT=${GEMINI_TIMEOUT:-60}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-5}
+      # Ingestion Configuration
       - DEFAULT_CHUNK_SIZE=${DEFAULT_CHUNK_SIZE:-1200}
       - DEFAULT_CHUNK_OVERLAP=${DEFAULT_CHUNK_OVERLAP:-200}
       - DEFAULT_TOTAL_QUESTIONS=${DEFAULT_TOTAL_QUESTIONS:-10}
@@ -39,7 +48,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8051
+      - VITE_API_URL=http://172.17.200.54:8051
     command: npm run dev -- --host
 
  

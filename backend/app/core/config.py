@@ -43,11 +43,6 @@ class Settings(BaseSettings):
     default_total_questions: int = Field(default=10)
     strip_sections: bool = Field(default=True)
     
-    # Chunk filtering configuration
-    enable_chunk_filtering: bool = Field(default=True, description="Enable chunk filtering")
-    min_chunk_words: int = Field(default=30, description="Minimum number of words required in a chunk")
-    filter_unwanted_sections: bool = Field(default=True, description="Filter chunks from unwanted sections")
-    
     @field_validator("data_dir")
     @classmethod
     def ensure_data_dir_exists(cls, v: Path) -> Path:

@@ -1,6 +1,6 @@
 # RAG Dataset Creator
 
-A web application that automatically creates RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. It fetches articles, processes them into chunks, generates questions using LLMs (Gemini or ChatGPT), and saves everything as structured files ready for machine learning workflows.
+A web application that automatically creates RAG (Retrieval-Augmented Generation) datasets from Wikipedia articles. It fetches articles, processes them into chunks, generates questions using AI, and saves everything as structured files ready for machine learning workflows.
 
 ## What This Application Does
 
@@ -8,7 +8,7 @@ This tool automates the creation of question-answer datasets for training RAG sy
 
 1. **Fetches Wikipedia Articles** - Takes any Wikipedia URL and downloads the article content
 2. **Processes Text** - Cleans the content and splits it into manageable chunks
-3. **Generates Questions** - Uses OpenAI's GPT models to create relevant questions for each text chunk
+3. **Generates Questions** - Uses AI models (OpenAI GPT or Google Gemini) to create relevant questions for each text chunk
 4. **Saves Structured Output** - Exports everything as organized Markdown files with metadata
 
 The result is a complete dataset with questions, source text chunks, and all the metadata needed for machine learning projects.
@@ -25,12 +25,17 @@ The result is a complete dataset with questions, source text chunks, and all the
 ## What You Need to Configure
 
 ### Required
-- **OpenAI API Key** - Get one from [OpenAI Platform](https://platform.openai.com/api-keys)
+- **LLM Provider** - Choose between OpenAI or Google Gemini
+- **API Key** - Get one from:
+  - [OpenAI Platform](https://platform.openai.com/api-keys) for OpenAI
+  - [Google AI Studio](https://aistudio.google.com/app/apikey) for Gemini
 
 ### Optional Settings
 - **Chunk Size** - How large each text segment should be (default: 1200 characters)
 - **Question Count** - Total questions to generate per article (default: 10)
-- **AI Model** - Which OpenAI model to use (default: gpt-4o-mini)
+- **AI Model** - Which specific model to use:
+  - OpenAI: gpt-4o-mini, gpt-4o, gpt-3.5-turbo, etc.
+  - Gemini: gemini-1.5-flash, gemini-1.5-pro, gemini-pro, etc.
 - **Text Processing** - How to split text (recursive or sentence-based)
 
 ## How to Run It
@@ -55,7 +60,7 @@ The result is a complete dataset with questions, source text chunks, and all the
    ```
 
 4. **Use the App**
-   - Open http://localhost:5180 in your browser
+   - Open http://172.17.200.54:5180 in your browser
    - Paste a Wikipedia URL and configure options
    - Watch the processing happen in real-time
    - Download your generated dataset files
@@ -88,28 +93,79 @@ Each file includes YAML metadata with IDs, timestamps, and processing options, m
 
 Create a `.env` file (copy from `env.template`) with these settings:
 
-**Required:**
+**LLM Provider Selection:**
 ```env
-OPENAI_API_KEY=your_api_key_here
+# Choose your LLM provider: "openai" or "gemini"
+LLM_PROVIDER=openai
 ```
+
+**Required (choose one based on your provider):**
+
+For OpenAI:
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+For Google Gemini:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+**Important for Gemini users:**
+1. **Enable the API**: Visit [Google Cloud Console](https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com) and enable the "Generative Language API"
+2. **Get API Key**: Create a new API key at [Google AI Studio](https://aistudio.google.com/app/apikey)
+3. **Wait**: After enabling the API, wait 2-3 minutes before testing
 
 **Optional (with defaults):**
 ```env
+# OpenAI Configuration
 OPENAI_CHAT_MODEL=gpt-4o-mini
+OPENAI_TIMEOUT=60
+OPENAI_MAX_RETRIES=5
+
+# Gemini Configuration
+GEMINI_CHAT_MODEL=gemini-1.5-flash
+GEMINI_TIMEOUT=60
+GEMINI_MAX_RETRIES=5
+
+# Processing Configuration
 DEFAULT_CHUNK_SIZE=1200
 DEFAULT_CHUNK_OVERLAP=200
 DEFAULT_TOTAL_QUESTIONS=10
 BACKEND_PORT=8051
 ```
 
+## Troubleshooting
+
+**Common Issues:**
+- **LLM API errors**: 
+  - For OpenAI: Check your API key and billing status at https://platform.openai.com/
+  - For Gemini: 
+    - **403 Service Disabled**: Enable the [Generative Language API](https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com)
+    - **API Key Issues**: Get a new key at https://aistudio.google.com/app/apikey
+    - **Recent Setup**: Wait 2-3 minutes after enabling the API
+- **Provider configuration**: Ensure `LLM_PROVIDER` is set to either "openai" or "gemini"
+- **Memory issues**: Try smaller chunk sizes for very large articles
+- **File permissions**: Ensure the data directory is writable
+
+**Getting Help:**
+- Check the API documentation at `/docs`
+- Review log files in the data directory
+- Verify your `.env` configuration
+- Test your LLM provider: `cd backend && python test_llm_providers.py factory`
+
 ## TODO
 
 **Planned Improvements:**
+- **Fix Bulk Processing Issue** - It sometimes stuck when processing articles in bulk and requires page refresh
 - **Add Gemini CLI support** - Integrate Google's Gemini models as an alternative to OpenAI
 - **Improve question generation prompting**:
   1. Each question should be related to more chunks (cross-chunk relationships)
   2. Generated items don't need to be questions (e.g. they can be commands, tasks, or other prompts)
-- **Fix Bulk Processing Issue** - It sometimes stuck when processing articles in bulk and requires page refresh
+
+## Author
+
+Created by Kagan Kose - feel free to contribute or report issues.
 
 ## License
 

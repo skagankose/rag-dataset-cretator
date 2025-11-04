@@ -49,7 +49,7 @@ function DatasetPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${articleId || 'dataset'}_dataset.json`
+      a.download = `${dataset?.title?.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'dataset'}_dataset.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)

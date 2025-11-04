@@ -133,8 +133,9 @@ function HomePage() {
       const link = document.createElement('a')
       link.href = url
       
-      // Create filename using article ID
-      link.download = `${articleId}_article.md`
+      // Create safe filename
+      const safeTitle = articleTitle.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+      link.download = `${safeTitle}_article.md`
       
       // Trigger download
       document.body.appendChild(link)
@@ -254,9 +255,11 @@ function HomePage() {
           
           const dataStr = JSON.stringify(comprehensiveData, null, 2)
           const dataBlob = new Blob([dataStr], { type: 'application/json' })
+          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+          
           return {
             blob: dataBlob,
-            filename: `${article.id}.json`,
+            filename: `${safeTitle}_complete.json`,
             title: article.title
           }
         } catch (error) {
@@ -283,9 +286,11 @@ function HomePage() {
             
             const dataStr = JSON.stringify(fallbackData, null, 2)
             const dataBlob = new Blob([dataStr], { type: 'application/json' })
+            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+            
             return {
               blob: dataBlob,
-              filename: `${article.id}_partial.json`,
+              filename: `${safeTitle}_partial.json`,
               title: article.title
             }
           } catch (fallbackError) {
@@ -306,9 +311,11 @@ function HomePage() {
             
             const dataStr = JSON.stringify(metadataOnlyData, null, 2)
             const dataBlob = new Blob([dataStr], { type: 'application/json' })
+            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+            
             return {
               blob: dataBlob,
-              filename: `${article.id}_metadata.json`,
+              filename: `${safeTitle}_metadata.json`,
               title: article.title
             }
           }
