@@ -48,7 +48,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://172.17.200.54:8051
+      - VITE_API_URL=http://localhost:8051
     command: npm run dev -- --host
 
  

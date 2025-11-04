@@ -13,7 +13,7 @@
 ### **Step 2: Frontend API Call**
 **File:** `frontend/src/lib/api.ts` (lines 38-48)
 
-1. `startIngestion()` function makes POST request to `http://172.17.200.54:8051/ingest`
+1. `startIngestion()` function makes POST request to `http://localhost:8051/ingest`
 2. Sends JSON payload with `wikipedia_url` and processing `options`
 
 ### **Step 3: Backend API Endpoint**  
@@ -34,7 +34,7 @@
 **File:** `frontend/src/hooks/useIngestStream.ts` (lines 21-66)
 
 1. Frontend receives the `run_id` from API response
-2. Creates EventSource connection to `http://172.17.200.54:8051/ingest/stream/{run_id}`
+2. Creates EventSource connection to `http://localhost:8051/ingest/stream/{run_id}`
 3. Starts listening for Server-Sent Events (SSE)
 
 ### **Step 6: Backend SSE Stream Setup**

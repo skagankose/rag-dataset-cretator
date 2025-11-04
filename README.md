@@ -60,7 +60,7 @@ The result is a complete dataset with questions, source text chunks, and all the
    ```
 
 4. **Use the App**
-   - Open http://172.17.200.54:5180 in your browser
+   - Open http://localhost:5180 in your browser
    - Paste a Wikipedia URL and configure options
    - Watch the processing happen in real-time
    - Download your generated dataset files

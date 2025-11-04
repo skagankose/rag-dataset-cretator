@@ -8,7 +8,7 @@ import type {
 } from '../types/api'
 
 // Base API URL - Backend service accessible at the deployed IP address
-const API_BASE_URL = 'http://172.17.200.54:8051'
+const API_BASE_URL = 'http://localhost:8051'
 
 class ApiError extends Error {
   constructor(message: string, public status?: number) {
