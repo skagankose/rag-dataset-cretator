@@ -1,6 +1,7 @@
 """Main ingestion pipeline that coordinates all processing steps."""
 
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -22,7 +23,7 @@ from ..storage.md import (
 )
 from ..storage.paths import paths
 from ..utils.ids import format_chunk_ids, generate_run_id
-from ..utils.text import count_tokens_estimate, extract_preview, normalize_title
+from ..utils.text import count_tokens_estimate, extract_preview, normalize_title, create_heading_path
 from .clean import clean_wikipedia_html
 from .fetch import fetch_wikipedia_article
 from .split import split_content, ChunkInfo
@@ -228,7 +229,252 @@ class IngestionPipeline:
             logger.error(f"Ingestion failed for {url}: {e}")
             await progress.failed(f"Ingestion failed: {str(e)}")
             raise IngestionError(f"Pipeline failed: {e}") from e
-    
+
+    async def ingest_file(
+        self,
+        content: str,
+        filename: str,
+        options: IngestOptions,
+        run_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run the ingestion pipeline for an uploaded Markdown file."""
+        run_id = run_id or generate_run_id()
+        progress = ProgressLogger(run_id)
+        
+        try:
+            # Derive title from filename
+            title = normalize_title(filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' '))
+            logger.info(f"Starting file ingestion for: {title}")
+            
+            # Generate pseudo-URL for ID generation and storage
+            url = f"file://{filename}"
+            url_checksum = compute_url_checksum(url)
+            
+            # Check for existing article
+            existing_article = article_index.find_by_checksum(url_checksum)
+            if existing_article and not options.reingest:
+                await progress.done(
+                    "Article already exists",
+                    article_id=existing_article.id,
+                    details={"existing": True}
+                )
+                return {
+                    "article_id": existing_article.id,
+                    "status": "existing",
+                    "run_id": run_id,
+                }
+            
+            # Generate article ID
+            article_id = generate_article_id(url, title)
+            
+            # Step 1: Parse Markdown structure
+            await progress.cleaning("Parsing Markdown structure...")
+            sections = self._parse_markdown_sections(content)
+            
+            word_count = len(content.split())
+            char_count = len(content)
+            
+            cleaned_data = {
+                "content": content,
+                "sections": sections,
+                "title": title,
+                "word_count": word_count,
+                "char_count": char_count,
+            }
+            
+            await progress.cleaning(
+                f"Parsed content: {word_count} words",
+                article_id=article_id,
+                details={
+                    "word_count": word_count,
+                    "char_count": char_count,
+                    "sections": len(sections)
+                }
+            )
+            
+            # Step 2: Split into chunks
+            await progress.splitting(f"Splitting text with {options.split_strategy} strategy...")
+            chunks = split_content(
+                content=content,
+                sections=sections,
+                strategy=options.split_strategy,
+                chunk_size=options.chunk_size,
+                chunk_overlap=options.chunk_overlap,
+            )
+            
+            await progress.splitting(
+                f"Created {len(chunks)} chunks",
+                article_id=article_id,
+                details={
+                    "num_chunks": len(chunks),
+                    "strategy": options.split_strategy,
+                    "chunk_size": options.chunk_size,
+                    "chunk_overlap": options.chunk_overlap
+                }
+            )
+            
+            # Step 3: Write Markdown files
+            await progress.write_markdown("Writing article and chunk files...")
+            
+            # Mock article_data for file
+            article_data = {
+                "url": url,
+                "title": title,
+                "lang": "en",  # Default to English for uploaded files
+                "content": content
+            }
+            
+            await self._write_article_files(
+                article_id=article_id,
+                article_data=article_data,
+                cleaned_data=cleaned_data,
+                chunks=chunks,
+                options=options,
+                url_checksum=url_checksum
+            )
+            
+            await progress.write_markdown(
+                f"Wrote article.md and {len(chunks)} chunk files",
+                article_id=article_id
+            )
+            
+            # Step 4: Generate questions
+            await progress.question_gen("Generating questions with LLM, this may take a while...")
+            try:
+                questions = await generate_questions_for_chunks(
+                    chunks=chunks,
+                    total_questions=options.total_questions,
+                    model=options.llm_model,
+                )
+                
+                await progress.question_gen(
+                    f"Generated {len(questions)} questions",
+                    article_id=article_id,
+                    details={
+                        "num_questions": len(questions),
+                        "model": options.llm_model,
+                        "total_questions_requested": options.total_questions
+                    }
+                )
+            except LLMError as e:
+                logger.error(f"LLM Error during question generation: {e.get_detailed_message()}")
+                await progress.question_gen(
+                    f"Failed to generate questions due to LLM error, continuing with empty dataset",
+                    article_id=article_id,
+                    details={"error": str(e), "provider": e.provider}
+                )
+                questions = []
+            except Exception as e:
+                logger.error(f"Unexpected error during question generation: {e}")
+                await progress.question_gen(
+                    f"Failed to generate questions, continuing with empty dataset",
+                    article_id=article_id,
+                    details={"error": str(e)}
+                )
+                questions = []
+            
+            # Step 5: Write dataset file
+            await progress.write_dataset_md("Writing dataset markdown file...")
+            await self._write_dataset_file(article_id, title, questions)
+            
+            await progress.write_dataset_md(
+                f"Wrote dataset.md with {len(questions)} questions",
+                article_id=article_id
+            )
+            
+            # Step 6: Update index
+            index_entry = article_index.add_article(
+                article_id=article_id,
+                url=url,
+                title=title,
+                lang="en",
+                checksum=url_checksum,
+            )
+            
+            # Step 7: Write logs
+            await self._write_logs(run_id, article_id, progress)
+            
+            await progress.done(
+                f"Successfully ingested file: {filename}",
+                article_id=article_id,
+                details={
+                    "total_chunks": len(chunks),
+                    "total_questions": len(questions),
+                    "processing_time": time.time()
+                }
+            )
+            
+            return {
+                "article_id": article_id,
+                "status": "completed",
+                "run_id": run_id,
+                "stats": {
+                    "chunks": len(chunks),
+                    "questions": len(questions),
+                    "word_count": word_count,
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Ingestion failed for file {filename}: {e}")
+            await progress.failed(f"Ingestion failed: {str(e)}")
+            raise IngestionError(f"Pipeline failed: {e}") from e
+
+    def _parse_markdown_sections(self, content: str) -> List[Dict[str, Any]]:
+        """Parse Markdown content to extract sections structure."""
+        sections = []
+        current_headings = []
+        
+        # Regex for Markdown headers
+        header_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+        
+        matches = list(header_pattern.finditer(content))
+        
+        if not matches:
+            # No headers, treat whole content as one section
+            return [{
+                'level': 1,
+                'title': 'Lead',
+                'heading_path': 'Lead',
+                'start_pos': 0
+            }]
+            
+        # Add Lead section if content exists before first header
+        if matches[0].start() > 0:
+            sections.append({
+                'level': 1,
+                'title': 'Lead',
+                'heading_path': 'Lead',
+                'start_pos': 0
+            })
+            
+        for match in matches:
+            level = len(match.group(1))
+            title = match.group(2).strip()
+            start_pos = match.start()
+            
+            # Update heading hierarchy
+            if level <= len(current_headings):
+                current_headings = current_headings[:level-1]
+            
+            while len(current_headings) < level - 1:
+                current_headings.append("")
+            
+            if level <= len(current_headings) + 1:
+                if level == len(current_headings) + 1:
+                    current_headings.append(title)
+                else:
+                    current_headings[level-1] = title
+            
+            sections.append({
+                'level': level,
+                'title': title,
+                'heading_path': create_heading_path(current_headings[:level]),
+                'start_pos': start_pos
+            })
+            
+        return sections
+
     async def _write_article_files(
         self,
         article_id: str,

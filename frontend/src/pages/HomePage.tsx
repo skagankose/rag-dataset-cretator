@@ -15,9 +15,11 @@ import {
   ArrowDownTrayIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ArrowUpTrayIcon,
+  DocumentPlusIcon,
 } from '@heroicons/react/24/outline'
 
-import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks } from '../lib/api'
+import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles } from '../lib/api'
 import { useIngestStream } from '../hooks/useIngestStream'
 import type { IngestOptions } from '../types/api'
 
@@ -50,6 +52,10 @@ function HomePage() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(10)
+
+  // File upload state
+  const [files, setFiles] = useState<FileList | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   const queryClient = useQueryClient()
   
@@ -751,6 +757,52 @@ function HomePage() {
     })
   }
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setFiles(e.target.files)
+    }
+  }
+
+  const handleFileUpload = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!files || files.length === 0) {
+      toast.error('Please select files to upload')
+      return
+    }
+
+    setIsUploading(true)
+    try {
+      const fileList = Array.from(files)
+      const responses = await uploadFiles(fileList, options)
+      
+      toast.success(`Started processing ${responses.length} files`)
+      
+      // Reset file input
+      const fileInput = document.getElementById('file-upload') as HTMLInputElement
+      if (fileInput) fileInput.value = ''
+      setFiles(null)
+
+      if (responses.length === 1) {
+        setCurrentRunId(responses[0].run_id)
+      } else {
+        // Poll for updates for multiple files
+        const pollForUpdates = async (attempts = 0) => {
+          if (attempts < 10) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            await refetchArticles()
+            setTimeout(() => pollForUpdates(attempts + 1), 2000)
+          }
+        }
+        pollForUpdates()
+      }
+    } catch (error) {
+      toast.error(`Failed to upload files: ${error.message}`)
+      console.error('File upload error:', error)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   const isProcessing = currentRunId && isConnected
   const isDone = lastEvent?.stage === 'DONE'
   const isFailed = lastEvent?.stage === 'FAILED'
@@ -876,6 +928,95 @@ function HomePage() {
               >
                 {isProcessing ? 'Processing...' : 'Process Article'}
               </button>
+            </form>
+          </div>
+        </div>
+
+        {/* File Upload Section */}
+        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+          <div className="p-8">
+            <div className="flex items-center space-x-3 mb-6">
+              <DocumentPlusIcon className="h-6 w-6 text-blue-500" />
+              <h2 className="text-xl font-medium text-white">
+                Upload Markdown Files
+              </h2>
+            </div>
+            
+            <form onSubmit={handleFileUpload} className="space-y-6">
+              <div className="flex items-center justify-center w-full">
+                <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-xl cursor-pointer bg-gray-700/50 hover:bg-gray-700 hover:border-blue-500 transition-colors">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <ArrowUpTrayIcon className="w-8 h-8 mb-3 text-gray-400" />
+                    <p className="mb-2 text-sm text-gray-400">
+                      <span className="font-semibold text-white">Click to upload</span> or drag and drop
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Markdown files (.md) (Multiple allowed)
+                    </p>
+                  </div>
+                  <input 
+                    id="file-upload" 
+                    type="file" 
+                    className="hidden" 
+                    multiple 
+                    accept=".md,.markdown"
+                    onChange={handleFileChange}
+                    disabled={isUploading || isProcessing}
+                  />
+                </label>
+              </div>
+
+              {files && files.length > 0 && (
+                <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-300">
+                      Selected {files.length} file(s):
+                    </span>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setFiles(null)
+                        const fileInput = document.getElementById('file-upload') as HTMLInputElement
+                        if (fileInput) fileInput.value = ''
+                      }}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                    {Array.from(files).map((file, index) => (
+                      <li key={index} className="text-xs text-gray-400 truncate pl-2 border-l-2 border-blue-500/30">
+                        {file.name} <span className="opacity-50">({Math.round(file.size / 1024)} KB)</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end">
+                <button
+                  type="submit"
+                  disabled={isUploading || !files || files.length === 0 || isProcessing}
+                  className="py-2.5 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center space-x-2"
+                >
+                  {isUploading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowUpTrayIcon className="h-4 w-4" />
+                      <span>Upload & Process</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              <p className="text-xs text-gray-400">
+                Note: Uploaded files will be processed using the same configuration options set in the Wikipedia section above.
+              </p>
             </form>
           </div>
         </div>

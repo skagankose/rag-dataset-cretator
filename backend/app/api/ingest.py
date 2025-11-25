@@ -1,9 +1,9 @@
 """Ingestion API endpoints."""
 
 import asyncio
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
@@ -11,7 +11,7 @@ from ..core.errors import IngestionError
 from ..core.logging import get_logger
 from ..ingest.pipeline import ingestion_pipeline
 from ..ingest.sse import progress_streamer
-from ..schemas.ingest import IngestRequest, IngestResponse
+from ..schemas.ingest import IngestRequest, IngestResponse, IngestOptions
 from ..utils.ids import generate_run_id
 
 logger = get_logger("api.ingest")
@@ -25,6 +25,15 @@ async def run_ingestion_background(url: str, options, run_id: str) -> None:
         await ingestion_pipeline.ingest_article(url, options, run_id)
     except Exception as e:
         logger.error(f"Background ingestion failed: {e}")
+        # The progress logger in the pipeline will handle the failure event
+
+
+async def run_file_ingestion_background(content: str, filename: str, options: IngestOptions, run_id: str) -> None:
+    """Run file ingestion in background task."""
+    try:
+        await ingestion_pipeline.ingest_file(content, filename, options, run_id)
+    except Exception as e:
+        logger.error(f"Background file ingestion failed: {e}")
         # The progress logger in the pipeline will handle the failure event
 
 
@@ -63,6 +72,70 @@ async def start_ingestion(
             status_code=500,
             detail=f"Failed to start ingestion: {str(e)}"
         ) from e
+
+
+@router.post("/ingest/files", response_model=List[IngestResponse])
+async def upload_files(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    chunk_size: int = Form(1200),
+    chunk_overlap: int = Form(200),
+    split_strategy: str = Form("header_aware"),
+    total_questions: int = Form(10),
+    reingest: bool = Form(False),
+) -> List[IngestResponse]:
+    """Upload and process Markdown files."""
+    responses = []
+    
+    try:
+        # Create options object
+        options = IngestOptions(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            split_strategy=split_strategy,
+            total_questions=total_questions,
+            reingest=reingest
+        )
+        
+        for file in files:
+            try:
+                content = await file.read()
+                content_str = content.decode("utf-8")
+                filename = file.filename
+                
+                run_id = generate_run_id()
+                
+                background_tasks.add_task(
+                    run_file_ingestion_background,
+                    content_str,
+                    filename,
+                    options,
+                    run_id
+                )
+                
+                responses.append(IngestResponse(
+                    run_id=run_id,
+                    message=f"Ingestion started for {filename}",
+                    status="started"
+                ))
+                
+            except Exception as e:
+                logger.error(f"Failed to process file {file.filename}: {e}")
+                responses.append(IngestResponse(
+                    run_id=generate_run_id(),
+                    message=f"Failed to process file {file.filename}: {str(e)}",
+                    status="failed"
+                ))
+                
+        return responses
+        
+    except Exception as e:
+        logger.error(f"Failed to start file ingestion: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start file ingestion: {str(e)}"
+        ) from e
+
 
 
 @router.get("/ingest/stream/{run_id}")

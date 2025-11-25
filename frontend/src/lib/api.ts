@@ -5,6 +5,7 @@ import type {
   ArticleMetadata,
   ChunkListItem,
   DatasetResponse,
+  IngestOptions,
 } from '../types/api'
 
 // Base API URL - Backend service accessible at the deployed IP address
@@ -45,6 +46,31 @@ export async function startIngestion(request: IngestRequest): Promise<IngestResp
   })
   
   return handleResponse<IngestResponse>(response)
+}
+
+export async function uploadFiles(
+  files: File[], 
+  options: Partial<IngestOptions>
+): Promise<IngestResponse[]> {
+  const formData = new FormData()
+  
+  files.forEach(file => {
+    formData.append('files', file)
+  })
+  
+  // Append options
+  if (options.chunk_size) formData.append('chunk_size', options.chunk_size.toString())
+  if (options.chunk_overlap) formData.append('chunk_overlap', options.chunk_overlap.toString())
+  if (options.split_strategy) formData.append('split_strategy', options.split_strategy)
+  if (options.total_questions) formData.append('total_questions', options.total_questions.toString())
+  if (options.reingest !== undefined) formData.append('reingest', options.reingest.toString())
+
+  const response = await fetch(`${API_BASE_URL}/ingest/files`, {
+    method: 'POST',
+    body: formData,
+  })
+  
+  return handleResponse<IngestResponse[]>(response)
 }
 
 // Articles API
