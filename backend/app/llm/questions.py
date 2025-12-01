@@ -164,6 +164,14 @@ class QuestionGenerator:
             chunk_ids = [chunk.id for chunk in chunk_group]
             chunk_contents = [chunk.content for chunk in chunk_group]
             
+            # Log chunk information for debugging
+            total_chars = sum(len(content) for content in chunk_contents)
+            logger.debug(f"Generating {num_questions} questions for {len(chunk_group)} chunk(s), total {total_chars} chars")
+            logger.debug(f"Chunk IDs: {chunk_ids}")
+            if chunk_group:
+                sections = list(set(chunk.section for chunk in chunk_group if chunk.section))
+                logger.debug(f"Sections: {sections if sections else ['Lead']}")
+            
             # Create context information
             context_info = ""
             if len(chunk_group) == 1:
@@ -195,12 +203,14 @@ class QuestionGenerator:
             
             # Generate completion
             chat_provider = get_chat_provider()
+            logger.debug(f"Calling LLM to generate {num_questions} questions...")
             response = await chat_provider.generate_json_completion(
                 messages=messages,
                 model=self.model,
                 temperature=0.1,
                 max_tokens=2000,  # Increased to allow for longer, more detailed responses
             )
+            logger.debug(f"LLM response received: {response.get('usage', {})}")
             
             # Validate and extract questions
             parsed_response = response["parsed_content"]
@@ -229,8 +239,20 @@ class QuestionGenerator:
             
             return questions
             
+        except LLMError as e:
+            # Log detailed LLM error with chunk context
+            logger.error(f"LLM Error for chunks {chunk_ids}: {e.get_detailed_message()}")
+            logger.warning(f"Using fallback question for chunk group due to LLM error")
+            # Return fallback question
+            section = chunk_group[0].section if chunk_group else "this topic"
+            return [{
+                "question": f"What information is provided about {section}?",
+                "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                "related_chunk_ids": [chunk.id for chunk in chunk_group],
+                "category": "LONG_ANSWER"
+            }]
         except Exception as e:
-            logger.error(f"Failed to generate questions for chunk group: {e}")
+            logger.error(f"Unexpected error generating questions for chunks {chunk_ids}: {type(e).__name__}: {e}")
             # Return fallback question
             section = chunk_group[0].section if chunk_group else "this topic"
             return [{
@@ -305,24 +327,30 @@ Requirements:
             return []
         
         all_questions = []
+        failed_groups = 0
+        successful_groups = 0
         
         # Create chunk groups
         chunk_groups = self._create_chunk_groups(chunks, total_questions)
         
         # Generate questions for each group
-        for chunk_group, num_questions in chunk_groups:
+        for idx, (chunk_group, num_questions) in enumerate(chunk_groups, 1):
             try:
+                logger.info(f"Processing chunk group {idx}/{len(chunk_groups)}...")
                 questions = await self._generate_questions_for_group(chunk_group, num_questions)
                 all_questions.extend(questions)
+                successful_groups += 1
             except LLMError as e:
                 # Log the detailed LLM error
-                logger.error(f"LLM Error generating questions for chunk group: {e.get_detailed_message()}")
+                logger.error(f"LLM Error generating questions for chunk group {idx}/{len(chunk_groups)}: {e.get_detailed_message()}")
+                failed_groups += 1
                 continue
             except Exception as e:
-                logger.error(f"Failed to generate questions for chunk group: {e}")
+                logger.error(f"Failed to generate questions for chunk group {idx}/{len(chunk_groups)}: {e}")
+                failed_groups += 1
                 continue
         
-        logger.info(f"Generated {len(all_questions)} total questions")
+        logger.info(f"Generated {len(all_questions)} total questions from {successful_groups}/{len(chunk_groups)} groups (failed: {failed_groups})")
         return all_questions
 
 

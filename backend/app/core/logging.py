@@ -38,19 +38,60 @@ def get_logger(name: str) -> logging.Logger:
 
 def log_llm_error(logger: logging.Logger, error_message: str, provider: str, response_data: Dict[str, Any] = None, exception: Exception = None) -> None:
     """Log LLM error with detailed response information."""
-    msg_parts = [f"🚨 LLM ERROR ({provider.upper()}):", error_message]
+    import json
+    
+    msg_parts = [f"🚨 LLM ERROR ({provider.upper()}):", "", error_message, ""]
     
     if response_data:
         msg_parts.append("📄 RESPONSE DATA:")
+        
+        # Define key display priorities and formatting
+        priority_keys = ["model", "finish_reason", "response_finish_reason", "candidate_finish_reason", "error_type", "error_code"]
+        nested_keys = ["prompt_feedback", "candidate_safety_ratings", "safety_ratings"]
+        
+        # Display priority keys first
+        for key in priority_keys:
+            if key in response_data:
+                msg_parts.append(f"   └─ {key}: {response_data[key]}")
+        
+        # Display nested structures with better formatting
+        for key in nested_keys:
+            if key in response_data and response_data[key]:
+                msg_parts.append(f"   └─ {key}:")
+                try:
+                    formatted = json.dumps(response_data[key], indent=6)
+                    for line in formatted.split('\n'):
+                        msg_parts.append(f"      {line}")
+                except Exception:
+                    msg_parts.append(f"      {response_data[key]}")
+        
+        # Display other keys
+        displayed_keys = set(priority_keys + nested_keys)
         for key, value in response_data.items():
-            if key == "content" and value:
-                # Truncate long content for readability
-                content = str(value)[:500] + "..." if len(str(value)) > 500 else str(value)
-                msg_parts.append(f"   └─ {key}: {content}")
-            elif key in ["model", "finish_reason", "usage", "error_type", "error_code"]:
-                msg_parts.append(f"   └─ {key}: {value}")
+            if key not in displayed_keys:
+                if key == "content" and value:
+                    # Truncate long content for readability
+                    content = str(value)[:500] + "..." if len(str(value)) > 500 else str(value)
+                    msg_parts.append(f"   └─ {key}: {content}")
+                elif key == "prompt_preview" and value:
+                    # Display prompt preview with proper truncation
+                    msg_parts.append(f"   └─ {key}:")
+                    msg_parts.append(f"      {value}")
+                elif key in ["prompt_length", "response_parts_count", "candidates_count", "has_text", 
+                           "candidate_has_content", "candidate_parts_count", "note"]:
+                    msg_parts.append(f"   └─ {key}: {value}")
+                elif isinstance(value, (list, dict)):
+                    # Format complex structures
+                    try:
+                        formatted = json.dumps(value, indent=6)
+                        msg_parts.append(f"   └─ {key}:")
+                        for line in formatted.split('\n'):
+                            msg_parts.append(f"      {line}")
+                    except Exception:
+                        msg_parts.append(f"   └─ {key}: {value}")
     
     if exception:
+        msg_parts.append("")
         msg_parts.append(f"🔥 EXCEPTION: {type(exception).__name__}: {str(exception)}")
     
     # Log as error level to ensure it appears on terminal

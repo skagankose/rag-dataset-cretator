@@ -99,8 +99,11 @@ class GeminiChat:
             if response_format and response_format.get("type") == "json_object":
                 prompt += "\n\nIMPORTANT: Your response must be valid JSON. Do not include any text outside the JSON object."
             
-            # Log prompt preview for debugging
+            # Log prompt information for debugging
+            logger.debug(f"Prompt length: {len(prompt)} chars, {len(messages)} messages")
             logger.debug(f"Prompt preview (first 300 chars): {prompt[:300]}...")
+            logger.debug(f"Safety settings: {self.safety_settings}")
+            logger.debug(f"Generation config: temperature={temperature}, max_tokens={max_tokens}")
             
             # Initialize model
             model_instance = genai.GenerativeModel(
@@ -120,34 +123,105 @@ class GeminiChat:
             
             # Extract content and check for blocking
             if not response.parts or not response.text:
-                # Collect detailed response information
+                # Collect detailed response information for debugging
                 response_data = {
                     "model": model_name,
-                    "prompt_text": prompt[:200] + "..." if len(prompt) > 200 else prompt,
-                    "response_parts": len(response.parts) if hasattr(response, 'parts') else 0,
-                    "finish_reason": str(getattr(response, 'finish_reason', 'unknown')),
-                    "prompt_feedback": str(getattr(response, 'prompt_feedback', None)),
+                    "prompt_length": len(prompt),
+                    "prompt_preview": prompt[:500] + "..." if len(prompt) > 500 else prompt,
+                    "response_parts_count": len(response.parts) if hasattr(response, 'parts') else 0,
+                    "has_text": hasattr(response, 'text'),
                 }
                 
-                # Check safety ratings
-                if hasattr(response, 'candidates') and response.candidates:
-                    candidate = response.candidates[0]
-                    response_data["candidate_finish_reason"] = str(getattr(candidate, 'finish_reason', 'unknown'))
-                    if hasattr(candidate, 'safety_ratings'):
-                        response_data["safety_ratings"] = [
-                            {
+                # Log the finish reason from the response object itself
+                if hasattr(response, 'finish_reason'):
+                    response_data["response_finish_reason"] = str(response.finish_reason)
+                
+                # Check for prompt feedback (blocking before generation)
+                if hasattr(response, 'prompt_feedback'):
+                    pf = response.prompt_feedback
+                    response_data["prompt_feedback"] = {
+                        "block_reason": str(getattr(pf, 'block_reason', 'NONE')),
+                        "safety_ratings": []
+                    }
+                    if hasattr(pf, 'safety_ratings'):
+                        for rating in pf.safety_ratings:
+                            response_data["prompt_feedback"]["safety_ratings"].append({
                                 "category": str(rating.category),
                                 "probability": str(rating.probability),
-                                "blocked": getattr(rating, 'blocked', False)
-                            }
-                            for rating in candidate.safety_ratings
-                        ]
+                                "blocked": getattr(rating, 'blocked', False),
+                            })
                 
+                # Check candidates (actual generation attempts)
+                if hasattr(response, 'candidates') and response.candidates:
+                    response_data["candidates_count"] = len(response.candidates)
+                    candidate = response.candidates[0]
+                    
+                    # Candidate finish reason (why generation stopped)
+                    if hasattr(candidate, 'finish_reason'):
+                        response_data["candidate_finish_reason"] = str(candidate.finish_reason)
+                    
+                    # Candidate safety ratings (applied during generation)
+                    if hasattr(candidate, 'safety_ratings'):
+                        response_data["candidate_safety_ratings"] = []
+                        for rating in candidate.safety_ratings:
+                            response_data["candidate_safety_ratings"].append({
+                                "category": str(rating.category),
+                                "probability": str(rating.probability),
+                                "blocked": getattr(rating, 'blocked', False),
+                            })
+                    
+                    # Check if there's any content in the candidate
+                    if hasattr(candidate, 'content'):
+                        response_data["candidate_has_content"] = True
+                        if hasattr(candidate.content, 'parts'):
+                            response_data["candidate_parts_count"] = len(candidate.content.parts)
+                            if candidate.content.parts:
+                                response_data["candidate_parts_info"] = [
+                                    {"type": type(part).__name__, "has_text": hasattr(part, 'text')}
+                                    for part in candidate.content.parts
+                                ]
+                else:
+                    response_data["candidates_count"] = 0
+                    response_data["note"] = "No candidates in response - likely prompt was blocked"
+                
+                # Try to get raw response for debugging
+                try:
+                    response_data["raw_response_type"] = str(type(response))
+                    response_data["raw_response_dir"] = [attr for attr in dir(response) if not attr.startswith('_')]
+                except Exception:
+                    pass
+                
+                # Determine specific error message based on response data
                 error_msg = "No content generated by Gemini"
-                if response_data.get("candidate_finish_reason") == "FinishReason.SAFETY":
-                    error_msg = "Content blocked by Gemini safety filters"
-                elif response_data.get("prompt_feedback"):
-                    error_msg = f"Prompt blocked: {response_data['prompt_feedback']}"
+                
+                if response_data.get("prompt_feedback", {}).get("block_reason") not in [None, "NONE", "BLOCK_REASON_UNSPECIFIED"]:
+                    block_reason = response_data["prompt_feedback"]["block_reason"]
+                    error_msg = f"Prompt blocked by Gemini before generation: {block_reason}"
+                    if response_data["prompt_feedback"].get("safety_ratings"):
+                        blocked_categories = [
+                            r["category"] for r in response_data["prompt_feedback"]["safety_ratings"]
+                            if r.get("blocked") or r.get("probability") in ["HIGH", "MEDIUM"]
+                        ]
+                        if blocked_categories:
+                            error_msg += f" (Categories: {', '.join(blocked_categories)})"
+                
+                elif "candidate_finish_reason" in response_data:
+                    finish_reason = response_data["candidate_finish_reason"]
+                    if "SAFETY" in finish_reason:
+                        error_msg = "Content blocked by Gemini safety filters during generation"
+                        if response_data.get("candidate_safety_ratings"):
+                            blocked_categories = [
+                                r["category"] for r in response_data["candidate_safety_ratings"]
+                                if r.get("blocked") or r.get("probability") in ["HIGH", "MEDIUM"]
+                            ]
+                            if blocked_categories:
+                                error_msg += f" (Categories: {', '.join(blocked_categories)})"
+                    elif "RECITATION" in finish_reason:
+                        error_msg = "Content blocked due to recitation (potential copyright/training data match)"
+                    elif "OTHER" in finish_reason:
+                        error_msg = f"Content generation stopped unexpectedly: {finish_reason}"
+                    else:
+                        error_msg = f"Content generation failed with reason: {finish_reason}"
                 
                 log_llm_error(logger, error_msg, "gemini", response_data)
                 raise LLMError(error_msg, response_data=response_data, provider="gemini")
@@ -172,25 +246,35 @@ class GeminiChat:
             logger.debug(f"Completion generated: {result['usage']}")
             return result
             
+        except LLMError:
+            # Re-raise LLMError without wrapping
+            raise
         except Exception as e:
-            # Capture response data if available
-            if hasattr(e, 'response') and e.response:
-                response_data = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "response_data": str(e.response) if hasattr(e, 'response') else None
-                }
-            else:
-                response_data = {"raw_error": str(e)}
-                
-            response_data.update({
+            # Capture detailed error information
+            response_data = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
                 "model": model_name,
                 "request_params": {
                     "temperature": temperature,
                     "max_tokens": max_tokens,
-                    "message_count": len(messages)
+                    "message_count": len(messages),
+                    "prompt_length": len(prompt) if 'prompt' in locals() else 0
                 }
-            })
+            }
+            
+            # Try to extract more information from the exception
+            if hasattr(e, 'response'):
+                try:
+                    response_data["exception_response"] = str(e.response)
+                except Exception:
+                    pass
+            
+            if hasattr(e, '__dict__'):
+                try:
+                    response_data["exception_attrs"] = {k: str(v) for k, v in e.__dict__.items() if not k.startswith('_')}
+                except Exception:
+                    pass
             
             # Log detailed error with response data
             log_llm_error(logger, f"Failed to generate completion: {e}", "gemini", response_data, e)
