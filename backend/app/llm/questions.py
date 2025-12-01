@@ -12,6 +12,7 @@ from .factory import get_chat_provider
 from .prompts import (
     get_question_generation_system_prompt,
     validate_question_response,
+    _load_prompts_config,
 )
 
 logger = get_logger("llm.questions")
@@ -208,7 +209,7 @@ class QuestionGenerator:
                 messages=messages,
                 model=self.model,
                 temperature=0.1,
-                max_tokens=2000,  # Increased to allow for longer, more detailed responses
+                max_tokens=8192,  # Increased to allow for longer, more detailed responses
             )
             logger.debug(f"LLM response received: {response.get('usage', {})}")
             
@@ -246,73 +247,56 @@ class QuestionGenerator:
             # Return fallback question
             section = chunk_group[0].section if chunk_group else "this topic"
             return [{
-                "question": f"What information is provided about {section}?",
-                "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                # "question": f"What information is provided about {section}?",
+                # "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                # "related_chunk_ids": [chunk.id for chunk in chunk_group],
+                # "category": "LONG_ANSWER"
+                "question": "n/a",
+                "answer": "n/a",
                 "related_chunk_ids": [chunk.id for chunk in chunk_group],
-                "category": "LONG_ANSWER"
+                "category": "INTERPRETATION"
             }]
         except Exception as e:
             logger.error(f"Unexpected error generating questions for chunks {chunk_ids}: {type(e).__name__}: {e}")
             # Return fallback question
             section = chunk_group[0].section if chunk_group else "this topic"
             return [{
-                "question": f"What information is provided about {section}?",
-                "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                # "question": f"What information is provided about {section}?",
+                # "answer": f"The text provides information about {section} as described in the relevant chunks.",
+                # "related_chunk_ids": [chunk.id for chunk in chunk_group],
+                # "category": "LONG_ANSWER"
+                "question": "n/a",
+                "answer": "n/a",
                 "related_chunk_ids": [chunk.id for chunk in chunk_group],
-                "category": "LONG_ANSWER"
+                "category": "INTERPRETATION"
             }]
     
     def _create_single_chunk_prompt(self, chunk: ChunkInfo, num_questions: int, context_info: str) -> str:
         """Create prompt for single-chunk questions."""
-        return f"""Generate exactly {num_questions} question-answer pair(s) that can be answered from this text chunk:
-
-Chunk ID: {chunk.id}{context_info}
-
-Text:
-{chunk.content}
-
-Each question must be categorized into one of these three categories:
-1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
-2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
-
-Requirements:
-- Only ask about information explicitly stated in this text
-- Make questions specific and factual
-- Each question should be answerable from this chunk alone
-- Provide complete, accurate answers based solely on the chunk content
-- Categorize each question appropriately based on the type of cognitive task required
-- Return valid JSON with the specified structure"""
+        config = _load_prompts_config()
+        return config["single_chunk_prompt"].format(
+            num_questions=num_questions,
+            chunk_id=chunk.id,
+            context_info=context_info,
+            chunk_content=chunk.content
+        )
     
     def _create_multi_chunk_prompt(self, chunks: List[ChunkInfo], num_questions: int, context_info: str) -> str:
         """Create prompt for multi-chunk questions."""
+        config = _load_prompts_config()
+        
         chunks_text = ""
         for chunk in chunks:
             chunks_text += f"\n\n--- Chunk {chunk.id} ---\n{chunk.content}"
         
         chunk_ids = [chunk.id for chunk in chunks]
         
-        return f"""Generate exactly {num_questions} question-answer pair(s) that require information from multiple chunks below.
-
-These chunks are related. Generate questions that:
-1. Require information from at least 2 of the provided chunks
-2. Are about connections, relationships, comparisons, or broader concepts across chunks
-3. Cannot be answered from any single chunk alone{context_info}
-
-Each question must be categorized into one of these three categories:
-1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
-2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
-
-Chunks:
-{chunks_text}
-
-Requirements:
-- Focus on relationships and connections between the chunks
-- Make questions that require synthesis of information
-- Provide complete answers that synthesize information from multiple chunks
-- Categorize each question appropriately based on the type of cognitive task required
-- Return valid JSON with chunk IDs {chunk_ids} in related_chunk_ids"""
+        return config["multi_chunk_prompt"].format(
+            num_questions=num_questions,
+            chunks_text=chunks_text,
+            context_info=context_info,
+            chunk_ids=chunk_ids
+        )
     
     async def generate_questions_for_chunks(
         self,

@@ -1,42 +1,47 @@
 """Prompts for LLM question generation."""
 
+import os
+from pathlib import Path
 from typing import Dict, List
+import yaml
+
+from ..core.logging import get_logger
+
+logger = get_logger("llm.prompts")
+
+# Cache for loaded prompts
+_prompts_cache = None
+
+
+def _load_prompts_config() -> Dict:
+    """Load prompts configuration from YAML file."""
+    global _prompts_cache
+    
+    if _prompts_cache is not None:
+        return _prompts_cache
+    
+    # Get the path to the prompts config file
+    config_dir = Path(__file__).parent.parent / "config"
+    prompts_file = config_dir / "prompts.yaml"
+    
+    if not prompts_file.exists():
+        logger.error(f"Prompts config file not found at: {prompts_file}")
+        raise FileNotFoundError(f"Prompts config file not found: {prompts_file}")
+    
+    try:
+        with open(prompts_file, 'r', encoding='utf-8') as f:
+            _prompts_cache = yaml.safe_load(f)
+        logger.info(f"Loaded prompts configuration from {prompts_file}")
+        return _prompts_cache
+    except Exception as e:
+        logger.error(f"Failed to load prompts config: {e}")
+        raise
 
 
 def get_question_generation_system_prompt() -> str:
     """Get the system prompt for question generation."""
-    return """You are an expert at generating high-quality question-answer pairs for RAG (Retrieval-Augmented Generation) datasets.
-
-Your task is to generate concise, factual questions with accurate answers that can be answered from the provided text chunks. Questions can be based on:
-1. Single chunks - questions answerable from one chunk alone
-2. Multiple chunks - questions requiring information from multiple related chunks
-
-Each question must be categorized into one of these three categories:
-1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
-2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
-
-Requirements:
-1. Questions and answers must be based ONLY on the provided text chunks
-2. Do not invent facts or include information not in the text
-3. Focus on key facts, concepts, relationships, and connections
-4. For multi-chunk questions, focus on relationships, comparisons, or broader concepts that span chunks
-5. Prefer specific questions over general ones
-6. Avoid questions that require outside knowledge
-7. Make questions clear and unambiguous
-8. Provide complete, accurate answers based solely on the chunk content
-9. Do not mention chunks in questions or answers (e.g. "as described in following chunks")
-10. Categorize each question appropriately based on the type of cognitive task required
-
-Return your response as a JSON object with this exact structure:
-{
-  "questions": [
-    {"question": "Single-chunk question?", "answer": "Complete answer based on the chunk content.", "related_chunk_ids": ["chunk_id"], "category": "FACTUAL"},
-    {"question": "Multi-chunk question requiring synthesis?", "answer": "Complete answer synthesizing information from multiple chunks.", "related_chunk_ids": ["chunk_id1", "chunk_id2"], "category": "INTERPRETATION"}
-  ]
-}
-
-Include ALL chunk IDs needed to answer each question in the "related_chunk_ids" array."""
+    config = _load_prompts_config()
+    return config["system_prompt"]
 
 
 def get_question_generation_user_prompt(
@@ -46,23 +51,19 @@ def get_question_generation_user_prompt(
     section: str = "",
     heading_path: str = "",
 ) -> str:
-    """Get the user prompt for question generation."""
+    """Get the user prompt for question generation (deprecated - kept for compatibility)."""
+    config = _load_prompts_config()
+    
     context_info = ""
     if section or heading_path:
         context_info = f"\n\nContext: This text is from the section '{section}' under '{heading_path}'."
     
-    return f"""Generate exactly {num_questions} question(s) that can be answered from this text chunk:
-
-Chunk ID: {chunk_id}{context_info}
-
-Text:
-{chunk_content}
-
-Remember:
-- Only ask about information that is explicitly stated in this text
-- Make questions specific and factual
-- Each question should be answerable from this chunk alone
-- Return valid JSON with the exact structure specified"""
+    return config["single_chunk_prompt"].format(
+        num_questions=num_questions,
+        chunk_id=chunk_id,
+        context_info=context_info,
+        chunk_content=chunk_content
+    )
 
 
 def get_multi_chunk_question_prompt(
@@ -70,34 +71,19 @@ def get_multi_chunk_question_prompt(
     chunk_ids: List[str],
     num_questions: int = 1,
 ) -> str:
-    """Get prompt for generating questions that span multiple chunks."""
+    """Get prompt for generating questions that span multiple chunks (deprecated - kept for compatibility)."""
+    config = _load_prompts_config()
+    
     chunks_text = ""
     for i, (chunk_id, content) in enumerate(zip(chunk_ids, chunk_contents)):
         chunks_text += f"\n\n--- Chunk {chunk_id} ---\n{content}"
     
-    return f"""Generate exactly {num_questions} question(s) that require information from multiple chunks below.
-
-These chunks are consecutive and related. Generate questions that:
-1. Require information from at least 2 of the provided chunks
-2. Are about connections, relationships, or broader concepts across chunks
-3. Cannot be answered from any single chunk alone
-
-Each question must be categorized into one of these three categories:
-1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
-2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
-
-Chunks:
-{chunks_text}
-
-Return valid JSON with this structure:
-{{
-  "questions": [
-    {{"question": "Question requiring multiple chunks?", "answer": "Complete answer synthesizing information from multiple chunks.", "related_chunk_ids": {chunk_ids}, "category": "INTERPRETATION"}}
-  ]
-}}
-
-The "related_chunk_ids" should include all chunk IDs that are needed to answer each question."""
+    return config["multi_chunk_prompt"].format(
+        num_questions=num_questions,
+        chunks_text=chunks_text,
+        context_info="",
+        chunk_ids=chunk_ids
+    )
 
 
 def validate_question_response(response: Dict) -> bool:
@@ -112,7 +98,9 @@ def validate_question_response(response: Dict) -> bool:
     if not isinstance(questions, list):
         return False
     
-    valid_categories = {"FACTUAL", "INTERPRETATION", "LONG_ANSWER"}
+    # Load valid categories from config
+    config = _load_prompts_config()
+    valid_categories = set(config.get("categories", ["FACTUAL", "INTERPRETATION", "LONG_ANSWER"]))
     
     for question in questions:
         if not isinstance(question, dict):

@@ -135,6 +135,27 @@ DEFAULT_TOTAL_QUESTIONS=10
 BACKEND_PORT=8051
 ```
 
+## Customizing LLM Prompts
+
+The prompts used to generate questions from text chunks are now configurable via a YAML file instead of being hard-coded. This makes it easy to experiment with different prompting strategies.
+
+**Prompts Configuration File:** `backend/app/config/prompts.yaml`
+
+This file contains:
+- **system_prompt**: The system message that defines the LLM's role and requirements
+- **single_chunk_prompt**: Template for generating questions from a single text chunk
+- **multi_chunk_prompt**: Template for generating questions that span multiple chunks
+- **categories**: Valid question categories (FACTUAL, INTERPRETATION, LONG_ANSWER)
+
+**To Modify Prompts:**
+
+1. Edit the `backend/app/config/prompts.yaml` file
+2. Keep the template variables intact (e.g., `{num_questions}`, `{chunk_content}`, etc.)
+3. Ensure prompts instruct the LLM to return valid JSON with the required structure
+4. Restart the application for changes to take effect
+
+For detailed documentation on prompt templates and available variables, see `backend/app/config/README.md`.
+
 ## Troubleshooting
 
 **Common Issues:**

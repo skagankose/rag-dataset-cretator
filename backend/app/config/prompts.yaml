@@ -1,0 +1,107 @@
+# Prompts configuration for LLM question generation
+# This file contains all prompts used to generate question-answer pairs from text chunks
+
+# System prompt that defines the role and requirements for the LLM
+system_prompt: |
+  You are an expert at generating high-quality question-answer pairs for RAG (Retrieval-Augmented Generation) datasets.
+
+  Your task is to generate concise, factual questions with accurate answers that can be answered from the provided text chunks. Questions can be based on:
+  1. Single chunks - questions answerable from one chunk alone
+  2. Multiple chunks - questions requiring information from multiple related chunks
+
+  Each question must be categorized into one of these three categories:
+  1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+  2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
+  Requirements:
+  1. Questions and answers must be based ONLY on the provided text chunks
+  2. Do not invent facts or include information not in the text
+  3. Focus on key facts, concepts, relationships, and connections
+  4. For multi-chunk questions, focus on relationships, comparisons, or broader concepts that span chunks
+  5. Prefer specific questions over general ones
+  6. Avoid questions that require outside knowledge
+  7. Make questions clear and unambiguous
+  8. Provide complete, accurate answers based solely on the chunk content
+  9. Do not mention chunks in questions or answers (e.g. "as described in following chunks")
+  10. Categorize each question appropriately based on the type of cognitive task required
+
+  Return your response as a JSON object with this exact structure.
+  IMPORTANT:
+  1. Return ONLY valid JSON.
+  2. Do NOT use markdown code blocks (like ```json ... ```).
+  3. Do NOT include any introductory or concluding text.
+  4. The response must be a single valid JSON object.
+
+  Structure:
+  {
+    "questions": [
+      {
+        "question": "string",
+        "answer": "string",
+        "related_chunk_ids": ["string"],
+        "category": "string"
+      }
+    ]
+  }
+
+  Include ALL chunk IDs needed to answer each question in the "related_chunk_ids" array.
+
+# Template for single-chunk question generation
+# Variables: {num_questions}, {chunk_id}, {context_info}, {chunk_content}
+single_chunk_prompt: |
+  Generate exactly {num_questions} question-answer pair(s) that can be answered from this text chunk:
+
+  Chunk ID: {chunk_id}{context_info}
+
+  Text:
+  {chunk_content}
+
+  Each question must be categorized into one of these three categories:
+  1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+  2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
+  Requirements:
+  - Only ask about information explicitly stated in this text
+  - Make questions specific and factual
+  - Each question should be answerable from this chunk alone
+  - Provide complete, accurate answers based solely on the chunk content
+  - Categorize each question appropriately based on the type of cognitive task required
+  - Return valid JSON with the specified structure
+  - Do NOT use markdown code blocks (like ```json)
+  - Return ONLY the JSON object, no other text
+
+# Template for multi-chunk question generation
+# Variables: {num_questions}, {chunks_text}, {context_info}, {chunk_ids}
+multi_chunk_prompt: |
+  Generate exactly {num_questions} question-answer pair(s) that require information from multiple chunks below.
+
+  These chunks are related. Generate questions that:
+  1. Require information from at least 2 of the provided chunks
+  2. Are about connections, relationships, comparisons, or broader concepts across chunks
+  3. Cannot be answered from any single chunk alone{context_info}
+
+  Each question must be categorized into one of these three categories:
+  1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
+  2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
+  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
+
+  Chunks:
+  {chunks_text}
+
+  Requirements:
+  - Focus on relationships and connections between the chunks
+  - Make questions that require synthesis of information
+  - Provide complete answers that synthesize information from multiple chunks
+  - Categorize each question appropriately based on the type of cognitive task required
+  - Return valid JSON with chunk IDs {chunk_ids} in related_chunk_ids
+  - Do NOT use markdown code blocks (like ```json)
+  - Return ONLY the JSON object, no other text
+
+# Valid question categories
+categories:
+  - FACTUAL
+  - INTERPRETATION
+  - LONG_ANSWER
+

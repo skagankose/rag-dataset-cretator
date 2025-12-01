@@ -35,7 +35,7 @@ class GeminiChat:
         # Generation config
         self.generation_config = {
             "temperature": 0.1,
-            "max_output_tokens": 2000,  # Increased for longer responses
+            "max_output_tokens": 8192,  # Increased for longer responses
         }
     
     def _ensure_configured(self):
@@ -79,7 +79,7 @@ class GeminiChat:
         messages: List[Dict[str, str]],
         model: str = None,
         temperature: float = 0.1,
-        max_tokens: int = 2000,
+        max_tokens: int = 8192,
         response_format: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """Generate chat completion with retry logic."""
@@ -95,24 +95,30 @@ class GeminiChat:
             # Convert messages to prompt
             prompt = self._messages_to_prompt(messages)
             
+            # Configure generation parameters
+            generation_config = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            }
+            
             # Add JSON format instruction if needed
             if response_format and response_format.get("type") == "json_object":
+                # Use native JSON mode for Gemini models that support it
+                generation_config["response_mime_type"] = "application/json"
+                # Still include the instruction for robustness, but it might not be strictly necessary with mime_type
                 prompt += "\n\nIMPORTANT: Your response must be valid JSON. Do not include any text outside the JSON object."
             
             # Log prompt information for debugging
             logger.debug(f"Prompt length: {len(prompt)} chars, {len(messages)} messages")
             logger.debug(f"Prompt preview (first 300 chars): {prompt[:300]}...")
             logger.debug(f"Safety settings: {self.safety_settings}")
-            logger.debug(f"Generation config: temperature={temperature}, max_tokens={max_tokens}")
+            logger.debug(f"Generation config: {generation_config}")
             
             # Initialize model
             model_instance = genai.GenerativeModel(
                 model_name=model_name,
                 safety_settings=self.safety_settings,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens,
-                }
+                generation_config=generation_config
             )
             
             # Generate content asynchronously
@@ -286,7 +292,7 @@ class GeminiChat:
         messages: List[Dict[str, str]],
         model: str = None,
         temperature: float = 0.1,
-        max_tokens: int = 2000,
+        max_tokens: int = 8192,
     ) -> Dict[str, Any]:
         """Generate JSON-formatted completion."""
         try:
