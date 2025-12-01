@@ -199,7 +199,7 @@ class QuestionGenerator:
                 messages=messages,
                 model=self.model,
                 temperature=0.1,
-                max_tokens=1000,
+                max_tokens=2000,  # Increased to allow for longer, more detailed responses
             )
             
             # Validate and extract questions
