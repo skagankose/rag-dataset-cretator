@@ -17,7 +17,7 @@ function Layout({ children }: LayoutProps) {
   const promptLanguage = config?.prompt_language?.toLowerCase() || 'en'
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
       <header className="bg-gray-50 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6">
@@ -61,6 +61,15 @@ function Layout({ children }: LayoutProps) {
       <main>
         {children}
       </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 py-6 mt-auto">
+        <div className="max-w-7xl mx-auto px-6 text-center">
+          <p className="text-sm text-gray-500">
+            © {new Date().getFullYear()} RAG Dataset Creator
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }

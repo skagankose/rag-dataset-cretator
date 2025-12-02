@@ -1126,9 +1126,9 @@ function HomePage() {
                     </button>
                   </div>
                   <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                    {Array.from(files).map((file, index) => (
+                    {(Array.from(files) as File[]).map((file, index) => (
                       <li key={index} className="text-xs text-gray-600 truncate pl-2 border-l-2 border-gray-400">
-                        {file.name} <span className="opacity-50">({Math.round(file.size / 1024)} KB)</span>
+                        {file.name} <span className="opacity-50">({file.size} bytes)</span>
                       </li>
                     ))}
                   </ul>
@@ -1259,9 +1259,6 @@ function HomePage() {
                   className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-black placeholder-gray-400 focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none"
                   disabled={bulkProcessing || isUploading}
                 />
-                <p className="mt-2 text-xs text-gray-500">
-                  Enter multiple Wikipedia URLs separated by commas, or use the random article generator above. Uses the Processing Settings configured above.
-                </p>
               </div>
 
                              {/* Bulk Processing Progress */}

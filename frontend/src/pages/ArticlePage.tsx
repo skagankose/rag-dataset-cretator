@@ -275,14 +275,20 @@ function ArticlePage() {
                 
                 {/* Article URL */}
                 <div className="mt-4">
-                  <a
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-gray-700 hover:text-black text-sm break-all transition-colors underline"
-                  >
-                    {article.url}
-                  </a>
+                  {article.url.startsWith('file://') ? (
+                    <span className="text-gray-700 text-sm break-all">
+                      {article.url.replace('file://', '')}
+                    </span>
+                  ) : (
+                    <a
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-700 hover:text-black text-sm break-all transition-colors underline"
+                    >
+                      {article.url}
+                    </a>
+                  )}
                 </div>
               </div>
               
