@@ -34,11 +34,11 @@ function Layout({ children }: LayoutProps) {
                   className="h-14 w-14 object-contain my-2"
                 />
                 <div className="flex flex-col">
-                  <span className="text-[1.2rem] md:text-[1.5rem] mb-1 font-semibold tracking-[-0.02em] text-[#111827]">
+                  <span className="text-xl font-bold tracking-tight leading-tight">
                     RAG Dataset Creator
                   </span>
-                  <span className="text-[0.85rem] md:text-[0.9rem] text-[#6b7280] font-normal">
-                    Transform articles into structured Q&A datasets
+                  <span className="text-xs text-gray-600 font-normal tracking-wide">
+                    Transform Articles into Q&A Datasets
                   </span>
                 </div>
               </Link>
