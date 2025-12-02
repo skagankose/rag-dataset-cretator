@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     default_total_questions: int = Field(default=10)
     strip_sections: bool = Field(default=True)
     
+    # Prompts configuration
+    prompt_language: Literal["en", "tr"] = Field(default="en", description="Language for prompts and UI")
+    
     @field_validator("data_dir")
     @classmethod
     def ensure_data_dir_exists(cls, v: Path) -> Path:

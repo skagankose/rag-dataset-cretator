@@ -5,9 +5,6 @@ import toast from 'react-hot-toast'
 import JSZip from 'jszip'
 import { 
   DocumentTextIcon,
-  ClockIcon,
-  CheckCircleIcon,
-  ExclamationCircleIcon,
   ArrowPathIcon,
   TrashIcon,
   RectangleStackIcon,
@@ -17,18 +14,17 @@ import {
   ChevronRightIcon,
   ArrowUpTrayIcon,
   DocumentPlusIcon,
+  Cog6ToothIcon,
+  GlobeAltIcon,
+  FolderIcon,
 } from '@heroicons/react/24/outline'
 
-import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles } from '../lib/api'
-import { useIngestStream } from '../hooks/useIngestStream'
+import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles, getConfig } from '../lib/api'
 import type { IngestOptions } from '../types/api'
 
 function HomePage() {
-  const [url, setUrl] = useState('')
   const [bulkUrls, setBulkUrls] = useState('')
   const [randomArticleCount, setRandomArticleCount] = useState(5)
-  const [currentRunId, setCurrentRunId] = useState<string | null>(null)
-  const [isLoadingRandomArticle, setIsLoadingRandomArticle] = useState(false)
   const [isLoadingRandomBulk, setIsLoadingRandomBulk] = useState(false)
   const [selectedArticles, setSelectedArticles] = useState<string[]>([])
   const [bulkProcessing, setBulkProcessing] = useState(false)
@@ -56,6 +52,14 @@ function HomePage() {
   // File upload state
   const [files, setFiles] = useState<FileList | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [fileUploadProgress, setFileUploadProgress] = useState({ 
+    submitted: 0, 
+    completed: 0, 
+    total: 0, 
+    currentFile: '',
+    processingFiles: new Map()
+  })
+  const [shouldStopFileUpload, setShouldStopFileUpload] = useState(false)
 
   const queryClient = useQueryClient()
   
@@ -64,7 +68,13 @@ function HomePage() {
     queryFn: getArticles,
   })
 
-  const { events, isConnected, error, lastEvent } = useIngestStream(currentRunId)
+  // Fetch configuration to get prompt language for random articles
+  const { data: config } = useQuery({
+    queryKey: ['config'],
+    queryFn: getConfig,
+  })
+
+  const promptLanguage = config?.prompt_language?.toLowerCase() || 'en'
 
   // Pagination logic
   const totalPages = Math.ceil(articles.length / itemsPerPage)
@@ -92,21 +102,6 @@ function HomePage() {
   useEffect(() => {
     setCurrentPage(1)
   }, [articles.length])
-
-  const ingestMutation = useMutation({
-    mutationFn: startIngestion,
-    onSuccess: (data) => {
-      setCurrentRunId(data.run_id)
-      if (data.status === 'existing') {
-        toast.success('Article already exists!')
-        queryClient.invalidateQueries({ queryKey: ['articles'] })
-        refetchArticles()
-      }
-    },
-    onError: (error) => {
-      toast.error(`Failed to start ingestion: ${error.message}`)
-    },
-  })
 
   const deleteMutation = useMutation({
     mutationFn: deleteArticle,
@@ -688,26 +683,6 @@ function HomePage() {
     }
   }
 
-  const fetchRandomArticle = async () => {
-    setIsLoadingRandomArticle(true)
-    try {
-      // Use Wikipedia's random page API
-      const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary')
-      if (!response.ok) {
-        throw new Error('Failed to fetch random article')
-      }
-      const data = await response.json()
-      const randomUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title.replace(/ /g, '_'))}`
-      setUrl(randomUrl)
-      toast.success('Random article suggested!')
-    } catch (error) {
-      toast.error('Failed to fetch random article')
-      console.error('Random article fetch error:', error)
-    } finally {
-      setIsLoadingRandomArticle(false)
-    }
-  }
-
   const fetchRandomBulkArticles = async () => {
     if (randomArticleCount < 1 || randomArticleCount > 20) {
       toast.error('Please enter a number between 1 and 20')
@@ -718,13 +693,16 @@ function HomePage() {
     try {
       toast.loading(`Fetching ${randomArticleCount} random articles...`)
       
+      // Use Wikipedia's random page API with appropriate language
+      const lang = promptLanguage === 'tr' ? 'tr' : 'en'
+      
       const fetchPromises = Array.from({ length: randomArticleCount }, async () => {
-        const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary')
+        const response = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/random/summary`)
         if (!response.ok) {
           throw new Error('Failed to fetch random article')
         }
         const data = await response.json()
-        return `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title.replace(/ /g, '_'))}`
+        return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(data.title.replace(/ /g, '_'))}`
       })
 
       const randomUrls = await Promise.all(fetchPromises)
@@ -744,23 +722,26 @@ function HomePage() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!url.trim()) {
-      toast.error('Please enter a Wikipedia URL')
-      return
-    }
-
-    ingestMutation.mutate({
-      wikipedia_url: url,
-      options,
-    })
-  }
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setFiles(e.target.files)
     }
+  }
+
+  const handleStopFileUpload = () => {
+    setShouldStopFileUpload(true)
+    setIsUploading(false)
+    setFileUploadProgress({ 
+      submitted: 0, 
+      completed: 0, 
+      total: 0, 
+      currentFile: '',
+      processingFiles: new Map()
+    })
+    setShouldStopFileUpload(false)
+    
+    // Refresh the page to ensure clean state
+    window.location.reload()
   }
 
   const handleFileUpload = async (e: React.FormEvent) => {
@@ -770,22 +751,220 @@ function HomePage() {
       return
     }
 
+    if (isUploading) {
+      toast.error('File upload is already in progress')
+      return
+    }
+
     setIsUploading(true)
-    try {
+    setShouldStopFileUpload(false)
       const fileList = Array.from(files)
-      const responses = await uploadFiles(fileList, options)
-      
-      toast.success(`Started processing ${responses.length} files`)
+    setFileUploadProgress({ 
+      submitted: 0, 
+      completed: 0, 
+      total: fileList.length, 
+      currentFile: '',
+      processingFiles: new Map()
+    })
+
+    try {
+      let successCount = 0
+      let errorCount = 0
+      const processingFiles = new Map()
+
+      // Step 1: Submit all files for processing
+      for (let i = 0; i < fileList.length; i++) {
+        // Check if user wants to stop processing
+        if (shouldStopFileUpload) {
+          toast.info('File upload stopped by user')
+          break
+        }
+
+        const currentFile = fileList[i]
+        setFileUploadProgress(prev => ({ 
+          ...prev, 
+          submitted: i + 1, 
+          currentFile: `Uploading: ${currentFile.name}` 
+        }))
+
+        try {
+          const responses = await uploadFiles([currentFile], options)
+          
+          if (responses.length > 0 && responses[0].status === 'started') {
+            processingFiles.set(responses[0].run_id, {
+              fileName: currentFile.name,
+              status: 'processing',
+              runId: responses[0].run_id,
+              startTime: Date.now()
+            })
+            successCount++
+          } else if (responses[0].status === 'existing') {
+            successCount++
+            setFileUploadProgress(prev => ({ 
+              ...prev, 
+              completed: prev.completed + 1 
+            }))
+          }
+        } catch (error) {
+          console.error(`Failed to upload ${currentFile.name}:`, error)
+          errorCount++
+          setFileUploadProgress(prev => ({ 
+            ...prev, 
+            completed: prev.completed + 1,
+            currentFile: `Failed: ${currentFile.name}`
+          }))
+        }
+
+        // Small delay between uploads
+        if (i < fileList.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300))
+        }
+      }
+
+      // Step 2: Monitor processing completion
+      const monitorCompletion = () => {
+        return new Promise((resolve) => {
+          const startTime = Date.now()
+          const maxTimeout = 300000 // 5 minutes total timeout
+          const fileTimeout = 60000 // 1 minute per file timeout
+
+          const checkInterval = setInterval(async () => {
+            // Check if user wants to stop processing
+            if (shouldStopFileUpload) {
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+
+            const activeProcessing = Array.from(processingFiles.values())
+              .filter(file => file.status === 'processing')
+
+            if (activeProcessing.length === 0) {
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+
+            // Check for files that have been processing too long
+            const now = Date.now()
+            let timedOutFiles = 0
+
+            processingFiles.forEach((file, runId) => {
+              if (file.status === 'processing') {
+                const processingTime = now - (file.startTime || now)
+                
+                if (processingTime > fileTimeout) {
+                  console.warn(`File timed out after ${processingTime}ms: ${file.fileName}`)
+                  file.status = 'failed'
+                  file.error = 'Processing timeout'
+                  timedOutFiles++
+                  errorCount++
+                }
+              }
+            })
+
+            // Check articles list to see if new articles have appeared
+            try {
+              const currentArticles = await getArticles()
+              let newCompletions = 0
+
+              processingFiles.forEach((file, runId) => {
+                if (file.status === 'processing') {
+                  // Check if this file now exists in the articles list
+                  // Match filename with article title (removing extension and normalizing separators)
+                  // Backend logic: filename without extension, replace _/- with space, clean whitespace
+                  const normalizedFileName = file.fileName.replace(/\.md$/i, '')
+                    .replace(/[_-]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase()
+
+                  const found = currentArticles.some(a => 
+                    a.title.toLowerCase().includes(normalizedFileName)
+                  )
+                  
+                  if (found) {
+                    file.status = 'completed'
+                    newCompletions++
+                  }
+                }
+              })
+
+              const totalNewCompletions = newCompletions + timedOutFiles
+              if (totalNewCompletions > 0) {
+                setFileUploadProgress(prev => ({ 
+                  ...prev, 
+                  completed: prev.completed + totalNewCompletions,
+                  currentFile: `Completed ${prev.completed + totalNewCompletions}/${prev.total} files${timedOutFiles > 0 ? ` (${timedOutFiles} failed)` : ''}`
+                }))
+              }
+            } catch (error) {
+              console.error('Error checking file completion:', error)
+            }
+
+            // Global timeout
+            if (now - startTime > maxTimeout) {
+              console.warn('Global timeout reached, stopping file upload monitor')
+              
+              let remainingFiles = 0
+              processingFiles.forEach((file, runId) => {
+                if (file.status === 'processing') {
+                  file.status = 'failed'
+                  file.error = 'Global timeout reached'
+                  remainingFiles++
+                  errorCount++
+                }
+              })
+
+              if (remainingFiles > 0) {
+                setFileUploadProgress(prev => ({ 
+                  ...prev, 
+                  completed: prev.completed + remainingFiles,
+                  currentFile: `Timeout reached - marked ${remainingFiles} remaining files as failed`
+                }))
+              }
+
+              clearInterval(checkInterval)
+              resolve(null)
+              return
+            }
+          }, 2000) // Check every 2 seconds
+        })
+      }
+
+      // Wait for all processing to complete
+      if (processingFiles.size > 0) {
+        setFileUploadProgress(prev => ({ 
+          ...prev, 
+          currentFile: `Waiting for ${processingFiles.size} files to complete processing...` 
+        }))
+        await monitorCompletion()
+      }
+
+      setIsUploading(false)
+      setFileUploadProgress({ 
+        submitted: 0, 
+        completed: 0, 
+        total: 0, 
+        currentFile: '',
+        processingFiles: new Map()
+      })
       
       // Reset file input
       const fileInput = document.getElementById('file-upload') as HTMLInputElement
       if (fileInput) fileInput.value = ''
       setFiles(null)
 
-      if (responses.length === 1) {
-        setCurrentRunId(responses[0].run_id)
-      } else {
-        // Poll for updates for multiple files
+      // Count final results
+      const actualSuccesses = Array.from(processingFiles.values())
+        .filter(file => file.status === 'completed').length
+      const actualFailures = Array.from(processingFiles.values())
+        .filter(file => file.status === 'failed').length
+
+      if (successCount > 0 || actualSuccesses > 0) {
+        // Invalidate and refetch articles
+        queryClient.invalidateQueries({ queryKey: ['articles'] })
+        
         const pollForUpdates = async (attempts = 0) => {
           if (attempts < 10) {
             await new Promise(resolve => setTimeout(resolve, 2000))
@@ -793,165 +972,127 @@ function HomePage() {
             setTimeout(() => pollForUpdates(attempts + 1), 2000)
           }
         }
+        
         pollForUpdates()
+        
+        const totalErrors = errorCount + actualFailures
+        if (totalErrors > 0) {
+          toast.success(
+            `File upload completed! ${actualSuccesses || successCount} files processed successfully. ${totalErrors} failed.`,
+            { duration: 6000 }
+          )
+        } else {
+          toast.success(`Successfully processed all ${actualSuccesses || successCount} files!`)
+        }
+      } else {
+        toast.error(`Failed to upload all ${fileList.length} files.`, { duration: 6000 })
       }
     } catch (error) {
-      toast.error(`Failed to upload files: ${error.message}`)
-      console.error('File upload error:', error)
-    } finally {
       setIsUploading(false)
-    }
-  }
-
-  const isProcessing = currentRunId && isConnected
-  const isDone = lastEvent?.stage === 'DONE'
-  const isFailed = lastEvent?.stage === 'FAILED'
-
-  // Reset state when done or failed
-  if (isDone || isFailed) {
-    if (currentRunId && !isConnected) {
-      setTimeout(() => {
-        setCurrentRunId(null)
-        if (isDone) {
-          queryClient.invalidateQueries({ queryKey: ['articles'] })
-          refetchArticles()
-          setUrl('')
-          toast.success('Article processing completed!')
-        }
-      }, 2000)
+      setFileUploadProgress({ 
+        submitted: 0, 
+        completed: 0, 
+        total: 0, 
+        currentFile: '',
+        processingFiles: new Map()
+      })
+      toast.error(`File upload failed: ${error.message}`)
+      console.error('File upload error:', error)
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-6 py-12 space-y-12">
-        {/* Header */}
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-semibold text-white tracking-tight">
-            RAG Dataset Creator
-          </h1>
-          <p className="text-lg text-gray-400 font-light">
-            Transform Wikipedia articles into structured Q&A datasets
-          </p>
-        </div>
 
-        {/* URL Input Form */}
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+        {/* Processing Settings */}
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="p-8">
-            <h2 className="text-xl font-medium text-white mb-6">
-              Add Wikipedia Article
-            </h2>
+            <div className="flex items-center space-x-3 mb-6">
+              <Cog6ToothIcon className="h-6 w-6 text-gray-900" />
+              <h2 className="text-xl font-medium text-black">
+                Processing Settings
+              </h2>
+            </div>
             
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="url" className="block text-sm font-medium text-gray-300 mb-3">
-                  Wikipedia URL
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chunk Size
                 </label>
-                <div className="flex rounded-xl border border-gray-600 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
-                  <input
-                    type="url"
-                    id="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://en.wikipedia.org/wiki/Machine_learning"
-                    className="flex-1 px-4 py-3 border-0 bg-transparent text-white placeholder-gray-400 focus:ring-0 focus:outline-none"
-                    disabled={isProcessing}
-                  />
-                  <button
-                    type="button"
-                    onClick={fetchRandomArticle}
-                    disabled={isProcessing || isLoadingRandomArticle}
-                    className="px-4 py-3 text-gray-400 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Suggest random Wikipedia article"
-                  >
-                    <ArrowPathIcon className={`h-5 w-5 ${isLoadingRandomArticle ? 'animate-spin' : ''}`} />
-                  </button>
-                </div>
-                <p className="mt-2 text-xs text-gray-400">
-                  Click the refresh icon to get a random Wikipedia article suggestion
+                <input
+                  type="number"
+                  min="100"
+                  max="5000"
+                  value={options.chunk_size}
+                  onChange={(e) => setOptions(prev => ({ ...prev, chunk_size: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-black focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  disabled={isUploading || bulkProcessing}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Characters per chunk (100-5000)
                 </p>
               </div>
 
-              {/* Options */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Chunk Size
-                  </label>
-                  <input
-                    type="number"
-                    min="100"
-                    max="5000"
-                    value={options.chunk_size}
-                    onChange={(e) => setOptions(prev => ({ ...prev, chunk_size: parseInt(e.target.value) }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={isProcessing}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Total Questions
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={options.total_questions}
-                    onChange={(e) => setOptions(prev => ({ ...prev, total_questions: parseInt(e.target.value) }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={isProcessing}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Split Strategy
-                  </label>
-                  <select
-                    value={options.split_strategy}
-                    onChange={(e) => setOptions(prev => ({ ...prev, split_strategy: e.target.value as 'recursive' | 'sentence' | 'header_aware' }))}
-                    className="w-full h-10 px-3 py-2 rounded-lg border border-gray-600 bg-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={isProcessing}
-                  >
-                    <option value="recursive">Recursive</option>
-                    <option value="sentence">Sentence</option>
-                    <option value="header_aware">Header Aware</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Total Questions
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={options.total_questions}
+                  onChange={(e) => setOptions(prev => ({ ...prev, total_questions: parseInt(e.target.value) }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-black focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  disabled={isUploading || bulkProcessing}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Questions to generate (1-50)
+                </p>
               </div>
 
-              <button
-                type="submit"
-                disabled={isProcessing || !url.trim()}
-                className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-              >
-                {isProcessing ? 'Processing...' : 'Process Article'}
-              </button>
-            </form>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Split Strategy
+                </label>
+                <select
+                  value={options.split_strategy}
+                  onChange={(e) => setOptions(prev => ({ ...prev, split_strategy: e.target.value as 'recursive' | 'header_aware' }))}
+                  className="w-full h-10 px-3 py-2 rounded-lg border border-gray-300 bg-white text-black focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                  disabled={isUploading || bulkProcessing}
+                >
+                  <option value="recursive">Recursive</option>
+                  <option value="header_aware">Header Aware</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  How to split the text
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* File Upload Section */}
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                {/* File Upload Section */}
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="p-8">
             <div className="flex items-center space-x-3 mb-6">
-              <DocumentPlusIcon className="h-6 w-6 text-blue-500" />
-              <h2 className="text-xl font-medium text-white">
+              <DocumentPlusIcon className="h-6 w-6 text-gray-900" />
+              <h2 className="text-xl font-medium text-black">
                 Upload Markdown Files
               </h2>
             </div>
             
             <form onSubmit={handleFileUpload} className="space-y-6">
               <div className="flex items-center justify-center w-full">
-                <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-xl cursor-pointer bg-gray-700/50 hover:bg-gray-700 hover:border-blue-500 transition-colors">
+                <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 hover:border-gray-900 transition-colors">
                   <div className="flex flex-col items-center justify-center pt-5 pb-6">
                     <ArrowUpTrayIcon className="w-8 h-8 mb-3 text-gray-400" />
-                    <p className="mb-2 text-sm text-gray-400">
-                      <span className="font-semibold text-white">Click to upload</span> or drag and drop
+                    <p className="mb-2 text-sm text-gray-600">
+                      <span className="font-semibold text-black">Click to upload</span>
                     </p>
                     <p className="text-xs text-gray-500">
-                      Markdown files (.md) (Multiple allowed)
+                      Markdown files (.md)
                     </p>
                   </div>
                   <input 
@@ -961,15 +1102,15 @@ function HomePage() {
                     multiple 
                     accept=".md,.markdown"
                     onChange={handleFileChange}
-                    disabled={isUploading || isProcessing}
+                    disabled={isUploading || bulkProcessing}
                   />
                 </label>
               </div>
 
               {files && files.length > 0 && (
-                <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-300">
+                    <span className="text-sm text-gray-700">
                       Selected {files.length} file(s):
                     </span>
                     <button 
@@ -979,14 +1120,14 @@ function HomePage() {
                         const fileInput = document.getElementById('file-upload') as HTMLInputElement
                         if (fileInput) fileInput.value = ''
                       }}
-                      className="text-xs text-red-400 hover:text-red-300"
+                      className="text-xs text-gray-900 hover:text-gray-700 font-medium"
                     >
                       Clear
                     </button>
                   </div>
                   <ul className="mt-2 space-y-1 max-h-32 overflow-y-auto">
                     {Array.from(files).map((file, index) => (
-                      <li key={index} className="text-xs text-gray-400 truncate pl-2 border-l-2 border-blue-500/30">
+                      <li key={index} className="text-xs text-gray-600 truncate pl-2 border-l-2 border-gray-400">
                         {file.name} <span className="opacity-50">({Math.round(file.size / 1024)} KB)</span>
                       </li>
                     ))}
@@ -994,116 +1135,222 @@ function HomePage() {
                 </div>
               )}
 
-              <div className="flex items-center justify-end">
+              {/* File Upload Progress */}
+              {isUploading && (
+                <div className="bg-gray-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-black">
+                      Processing Files ({fileUploadProgress.completed}/{fileUploadProgress.total} completed)
+                    </span>
+                    <div className="flex items-center space-x-3">
+                      <span className="text-xs text-gray-600">
+                        {fileUploadProgress.total > 0 ? Math.round((fileUploadProgress.completed / fileUploadProgress.total) * 100) : 0}%
+                      </span>
                 <button
-                  type="submit"
-                  disabled={isUploading || !files || files.length === 0 || isProcessing}
-                  className="py-2.5 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center space-x-2"
-                >
-                  {isUploading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Uploading...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpTrayIcon className="h-4 w-4" />
-                      <span>Upload & Process</span>
-                    </>
-                  )}
+                        onClick={handleStopFileUpload}
+                        className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                      >
+                        Stop Upload
                 </button>
-              </div>
-              
-              <p className="text-xs text-gray-400">
-                Note: Uploaded files will be processed using the same configuration options set in the Wikipedia section above.
-              </p>
+          </div>
+        </div>
+        
+                  {/* Submission Progress */}
+                  <div className="mb-2">
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>Submitted: {fileUploadProgress.submitted}/{fileUploadProgress.total}</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-1">
+                      <div 
+                        className="bg-gray-500 h-1 rounded-full transition-all duration-300"
+                        style={{ width: `${fileUploadProgress.total > 0 ? (fileUploadProgress.submitted / fileUploadProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Completion Progress */}
+                  <div className="mb-3">
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>Completed: {fileUploadProgress.completed}/{fileUploadProgress.total}</span>
+                        </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-gray-900 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${fileUploadProgress.total > 0 ? (fileUploadProgress.completed / fileUploadProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                      </div>
+                  
+                  {fileUploadProgress.currentFile && (
+                    <p className="text-xs text-gray-600 truncate">
+                      Status: {fileUploadProgress.currentFile}
+                    </p>
+                  )}
+          </div>
+        )}
+
+              <button
+                type="submit"
+                disabled={isUploading || !files || files.length === 0 || bulkProcessing}
+                className="w-full py-3 px-6 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+              >
+                {isUploading ? 
+                  `Processing... (${fileUploadProgress.completed}/${fileUploadProgress.total} completed)` : 
+                  'Upload and Process Files'
+                }
+              </button>
             </form>
           </div>
         </div>
 
-        {/* Progress Display */}
-        {currentRunId && (
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden animate-fade-in">
-            <div className="p-8">
-              <h3 className="text-xl font-medium text-white mb-6">
-                Processing Progress
-              </h3>
-              
-              {/* Single Progress Row */}
-              {events.length > 0 && (
-                <div className="space-y-4">
-                  {/* Progress Bar */}
-                  <div className="w-full bg-gray-700 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full transition-all duration-500 ${
-                        lastEvent?.stage === 'FAILED' ? 'bg-red-500' : 
-                        lastEvent?.stage === 'DONE' ? 'bg-green-500' : 'bg-blue-500'
-                      }`}
-                      style={{ width: `${(events.length / (events.length + (lastEvent?.stage === 'DONE' ? 0 : 1))) * 100}%` }}
+        {/* Bulk Processing Section */}
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+          <div className="p-8">
+            <div className="flex items-center space-x-3 mb-6">
+              <GlobeAltIcon className="h-6 w-6 text-gray-900" />
+              <h2 className="text-xl font-medium text-black">
+                Process Wikipedia Articles
+              </h2>
+            </div>
+            
+            <div className="space-y-6">
+              {/* Random Articles Generator */}
+              <div className="bg-gray-100 rounded-xl p-4">
+                <h3 className="text-sm font-medium text-black mb-3">
+                  Add Random Articles
+                </h3>
+                <div className="flex items-end space-x-3">
+                  <div>
+                    <label htmlFor="random-count" className="block text-xs font-medium text-gray-600 mb-2">
+                      Number of articles (1-20)
+                    </label>
+                    <input
+                      type="number"
+                      id="random-count"
+                      min="1"
+                      max="20"
+                      value={randomArticleCount}
+                      onChange={(e) => setRandomArticleCount(parseInt(e.target.value) || 1)}
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-black focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                      disabled={isLoadingRandomBulk || bulkProcessing || isUploading}
                     />
                   </div>
-                  
-                  {/* Current Step */}
-                  <div className="flex items-center space-x-4 p-4 rounded-xl bg-gray-700">
-                    <div className="flex-shrink-0">
-                      {lastEvent?.stage === 'FAILED' ? (
-                        <ExclamationCircleIcon className="h-5 w-5 text-red-500" />
-                      ) : lastEvent?.stage === 'DONE' ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <div className="flex items-center space-x-2">
-                          <ClockIcon className="h-5 w-5 text-blue-500" />
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-white">
-                          {lastEvent?.stage || 'Starting...'}
-                        </p>
-                        <span className="text-xs text-gray-400">
-                          ({events.length} step{events.length !== 1 ? 's' : ''} completed)
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-300 mt-1">
-                        {lastEvent?.message || 'Initializing...'}
-                      </p>
-                    </div>
-                    <div className="text-xs text-gray-400 flex-shrink-0">
-                      {lastEvent && new Date(lastEvent.timestamp * 1000).toLocaleTimeString()}
-                    </div>
-                  </div>
+                  <button
+                    onClick={fetchRandomBulkArticles}
+                    disabled={isLoadingRandomBulk || bulkProcessing || isUploading}
+                    className="px-4 py-3 bg-black hover:bg-gray-800 disabled:bg-gray-300 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white flex items-center space-x-2 h-15"
+                  >
+                    <ArrowPathIcon className={`h-4 w-4 ${isLoadingRandomBulk ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingRandomBulk ? 'Fetching...' : 'Add Random'}</span>
+                  </button>
                 </div>
-              )}
+              </div>
 
-              {error && (
-                <div className="mt-6 p-4 bg-red-900/20 border border-red-800 rounded-xl">
-                  <p className="text-sm text-red-400">
-                    Connection error: {error}
-                  </p>
-                </div>
-              )}
+              <div>
+                <label htmlFor="bulk-urls" className="block text-sm font-medium text-gray-700 mb-3">
+                  Wikipedia URLs (separated by commas)
+                </label>
+                <textarea
+                  id="bulk-urls"
+                  rows={4}
+                  value={bulkUrls}
+                  onChange={(e) => setBulkUrls(e.target.value)}
+                  placeholder="https://en.wikipedia.org/wiki/Machine_learning, https://en.wikipedia.org/wiki/Artificial_intelligence, https://en.wikipedia.org/wiki/Neural_network"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-black placeholder-gray-400 focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none"
+                  disabled={bulkProcessing || isUploading}
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  Enter multiple Wikipedia URLs separated by commas, or use the random article generator above. Uses the Processing Settings configured above.
+                </p>
+              </div>
+
+                             {/* Bulk Processing Progress */}
+               {bulkProcessing && (
+                 <div className="bg-gray-100 rounded-xl p-4">
+                   <div className="flex items-center justify-between mb-3">
+                     <span className="text-sm font-medium text-black">
+                       Processing Articles ({bulkProgress.completed}/{bulkProgress.total} completed)
+                     </span>
+                     <div className="flex items-center space-x-3">
+                       <span className="text-xs text-gray-600">
+                         {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
+                       </span>
+                       <button
+                         onClick={handleStopBulkProcessing}
+                         className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                       >
+                         Stop Processing
+                       </button>
+                     </div>
+                   </div>
+                   
+                   {/* Submission Progress */}
+                   <div className="mb-2">
+                     <div className="flex justify-between text-xs text-gray-600 mb-1">
+                       <span>Submitted: {bulkProgress.submitted}/{bulkProgress.total}</span>
+                     </div>
+                     <div className="w-full bg-gray-200 rounded-full h-1">
+                       <div 
+                         className="bg-gray-500 h-1 rounded-full transition-all duration-300"
+                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.submitted / bulkProgress.total) * 100 : 0}%` }}
+                       />
+                     </div>
+                   </div>
+                   
+                   {/* Completion Progress */}
+                   <div className="mb-3">
+                     <div className="flex justify-between text-xs text-gray-600 mb-1">
+                       <span>Completed: {bulkProgress.completed}/{bulkProgress.total}</span>
+                     </div>
+                     <div className="w-full bg-gray-200 rounded-full h-2">
+                       <div 
+                         className="bg-gray-900 h-2 rounded-full transition-all duration-300"
+                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.completed / bulkProgress.total) * 100 : 0}%` }}
+                       />
+                     </div>
+                   </div>
+                   
+                   {bulkProgress.currentUrl && (
+                     <p className="text-xs text-gray-600 truncate">
+                       Status: {bulkProgress.currentUrl}
+                     </p>
+                   )}
+                 </div>
+               )}
+
+                             <button
+                 onClick={handleBulkProcessing}
+                 disabled={bulkProcessing || isUploading || !bulkUrls.trim()}
+                 className="w-full py-3 px-6 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+               >
+                 {bulkProcessing ? 
+                   `Processing... (${bulkProgress.completed}/${bulkProgress.total} completed)` : 
+                   'Process All Articles'
+                 }
+               </button>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Articles List */}
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="p-8">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center space-x-4">
-                <h2 className="text-xl font-medium text-white">
-                  All Articles
-                </h2>
+                <div className="flex items-center space-x-3">
+                  <FolderIcon className="h-6 w-6 text-gray-900" />
+                  <h2 className="text-xl font-medium text-black">
+                    All Articles
+                  </h2>
+                </div>
                 {articles.length > 0 && (
                   <div className="flex items-center space-x-4">
-                    <span className="text-sm text-gray-400">
+                    <span className="text-sm text-gray-600">
                       {articles.length} total • Page {currentPage} of {totalPages}
                     </span>
                     <button
                       onClick={handleSelectAll}
-                      className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                      className="text-sm text-gray-900 hover:text-gray-700 font-medium"
                     >
                       {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
                     </button>
@@ -1114,7 +1361,7 @@ function HomePage() {
                 <button
                   onClick={handleDownloadAllArticles}
                   disabled={selectedArticles.length === 0}
-                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
                   title={`Download ${selectedArticles.length} selected articles`}
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
@@ -1123,7 +1370,7 @@ function HomePage() {
                 <button
                   onClick={handleDeleteSelectedArticles}
                   disabled={selectedArticles.length === 0}
-                  className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-800"
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
                   title={`Delete ${selectedArticles.length} selected articles`}
                 >
                   <TrashIcon className="h-4 w-4" />
@@ -1134,9 +1381,9 @@ function HomePage() {
             
             {articles.length === 0 ? (
               <div className="text-center py-16">
-                <DocumentTextIcon className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-400">
-                  No articles processed yet. Add a Wikipedia URL to get started.
+                <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">
+                  No articles processed yet.
                 </p>
               </div>
             ) : (
@@ -1147,8 +1394,8 @@ function HomePage() {
                     onClick={() => handleArticleSelection(article.id)}
                     className={`group flex items-center justify-between p-4 rounded-xl border transition-colors cursor-pointer ${
                       selectedArticles.includes(article.id) 
-                        ? 'border-blue-500 bg-blue-900/20' 
-                        : 'border-gray-700 hover:bg-gray-700'
+                        ? 'border-gray-900 bg-gray-50' 
+                        : 'border-gray-200 hover:bg-gray-50'
                     }`}
                   >
                     <div className="flex items-center space-x-4 min-w-0 flex-1">
@@ -1161,17 +1408,17 @@ function HomePage() {
                             handleArticleSelection(article.id)
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+                          className="h-4 w-4 rounded border-gray-300 bg-white text-gray-900 focus:ring-gray-900 focus:ring-offset-0"
                         />
                       </div>
                       <div className="flex-shrink-0">
-                        <DocumentTextIcon className="h-5 w-5 text-gray-400" />
+                        <DocumentTextIcon className="h-5 w-5 text-gray-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-medium text-white truncate">
+                        <h3 className="text-sm font-medium text-black truncate">
                           {article.title}
                         </h3>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-gray-600 mt-1">
                           {article.lang} • {new Date(article.created_at).toLocaleDateString()}
                         </p>
                       </div>
@@ -1180,7 +1427,7 @@ function HomePage() {
                       <Link
                         to={`/articles/${article.id}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-sm text-blue-400 hover:text-blue-300 flex items-center space-x-1 font-medium"
+                        className="text-sm text-gray-700 hover:text-black flex items-center space-x-1 font-medium"
                       >
                         <RectangleStackIcon className="h-4 w-4" />
                         <span>Chunks</span>
@@ -1188,7 +1435,7 @@ function HomePage() {
                       <Link
                         to={`/dataset/${article.id}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-sm text-green-400 hover:text-green-300 flex items-center space-x-1 font-medium"
+                        className="text-sm text-gray-700 hover:text-black flex items-center space-x-1 font-medium"
                       >
                         <ChatBubbleLeftRightIcon className="h-4 w-4" />
                         <span>Question</span>
@@ -1206,7 +1453,7 @@ function HomePage() {
                   <button
                     onClick={goToPrevPage}
                     disabled={currentPage === 1}
-                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     <ChevronLeftIcon className="h-4 w-4" />
                     <span>Previous</span>
@@ -1221,7 +1468,7 @@ function HomePage() {
                       if (!isNearCurrentPage && !isFirstOrLast) {
                         if (page === currentPage - 3 || page === currentPage + 3) {
                           return (
-                            <span key={page} className="px-2 text-gray-500">
+                            <span key={page} className="px-2 text-gray-400">
                               ...
                             </span>
                           )
@@ -1235,8 +1482,8 @@ function HomePage() {
                           onClick={() => goToPage(page)}
                           className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                             isCurrentPage
-                              ? 'bg-blue-600 text-white'
-                              : 'text-gray-300 bg-gray-700 hover:bg-gray-600'
+                              ? 'bg-black text-white'
+                              : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
                           }`}
                         >
                           {page}
@@ -1248,146 +1495,21 @@ function HomePage() {
                   <button
                     onClick={goToNextPage}
                     disabled={currentPage === totalPages}
-                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center space-x-1 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     <span>Next</span>
                     <ChevronRightIcon className="h-4 w-4" />
                   </button>
                 </div>
                 
-                <div className="text-sm text-gray-400">
+                <div className="text-sm text-gray-600">
                   Showing {startIndex + 1}-{Math.min(endIndex, articles.length)} of {articles.length} articles
                 </div>
               </div>
             )}
           </div>
         </div>
-
-        {/* Bulk Processing Section */}
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
-          <div className="p-8">
-            <h2 className="text-xl font-medium text-white mb-6">
-              Bulk Process Articles
-            </h2>
-            
-            <div className="space-y-6">
-              {/* Random Articles Generator */}
-              <div className="bg-gray-700 rounded-xl p-4">
-                <h3 className="text-sm font-medium text-white mb-3">
-                  Add Random Articles
-                </h3>
-                <div className="flex items-end space-x-3">
-                  <div>
-                    <label htmlFor="random-count" className="block text-xs font-medium text-gray-400 mb-2">
-                      Number of articles (1-20)
-                    </label>
-                    <input
-                      type="number"
-                      id="random-count"
-                      min="1"
-                      max="20"
-                      value={randomArticleCount}
-                      onChange={(e) => setRandomArticleCount(parseInt(e.target.value) || 1)}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-800 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      disabled={isLoadingRandomBulk || bulkProcessing || isProcessing}
-                    />
-                  </div>
-                  <button
-                    onClick={fetchRandomBulkArticles}
-                    disabled={isLoadingRandomBulk || bulkProcessing || isProcessing}
-                    className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 flex items-center space-x-2 h-15"
-                  >
-                    <ArrowPathIcon className={`h-4 w-4 ${isLoadingRandomBulk ? 'animate-spin' : ''}`} />
-                    <span>{isLoadingRandomBulk ? 'Fetching...' : 'Add Random'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="bulk-urls" className="block text-sm font-medium text-gray-300 mb-3">
-                  Wikipedia URLs (separated by commas)
-                </label>
-                <textarea
-                  id="bulk-urls"
-                  rows={4}
-                  value={bulkUrls}
-                  onChange={(e) => setBulkUrls(e.target.value)}
-                  placeholder="https://en.wikipedia.org/wiki/Machine_learning, https://en.wikipedia.org/wiki/Artificial_intelligence, https://en.wikipedia.org/wiki/Neural_network"
-                  className="w-full px-4 py-3 rounded-xl border border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  disabled={bulkProcessing || isProcessing}
-                />
-                <p className="mt-2 text-xs text-gray-400">
-                  Enter multiple Wikipedia URLs separated by commas, or use the random article generator above. Uses the same settings as above.
-                </p>
-              </div>
-
-                             {/* Bulk Processing Progress */}
-               {bulkProcessing && (
-                 <div className="bg-gray-700 rounded-xl p-4">
-                   <div className="flex items-center justify-between mb-3">
-                     <span className="text-sm font-medium text-white">
-                       Processing Articles ({bulkProgress.completed}/{bulkProgress.total} completed)
-                     </span>
-                     <div className="flex items-center space-x-3">
-                       <span className="text-xs text-gray-400">
-                         {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
-                       </span>
-                       <button
-                         onClick={handleStopBulkProcessing}
-                         className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-700"
-                       >
-                         Stop Processing
-                       </button>
-                     </div>
-                   </div>
-                   
-                   {/* Submission Progress */}
-                   <div className="mb-2">
-                     <div className="flex justify-between text-xs text-gray-400 mb-1">
-                       <span>Submitted: {bulkProgress.submitted}/{bulkProgress.total}</span>
-                     </div>
-                     <div className="w-full bg-gray-600 rounded-full h-1">
-                       <div 
-                         className="bg-yellow-500 h-1 rounded-full transition-all duration-300"
-                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.submitted / bulkProgress.total) * 100 : 0}%` }}
-                       />
-                     </div>
-                   </div>
-                   
-                   {/* Completion Progress */}
-                   <div className="mb-3">
-                     <div className="flex justify-between text-xs text-gray-400 mb-1">
-                       <span>Completed: {bulkProgress.completed}/{bulkProgress.total}</span>
-                     </div>
-                     <div className="w-full bg-gray-600 rounded-full h-2">
-                       <div 
-                         className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.completed / bulkProgress.total) * 100 : 0}%` }}
-                       />
-                     </div>
-                   </div>
-                   
-                   {bulkProgress.currentUrl && (
-                     <p className="text-xs text-gray-400 truncate">
-                       Status: {bulkProgress.currentUrl}
-                     </p>
-                   )}
-                 </div>
-               )}
-
-                             <button
-                 onClick={handleBulkProcessing}
-                 disabled={bulkProcessing || isProcessing || !bulkUrls.trim()}
-                 className="w-full py-3 px-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-               >
-                 {bulkProcessing ? 
-                   `Processing... (${bulkProgress.completed}/${bulkProgress.total} completed)` : 
-                   'Process All Articles'
-                 }
-               </button>
-            </div>
-          </div>
-        </div>
+        {/* Download Dataset Section */}
       </div>
     </div>
   )

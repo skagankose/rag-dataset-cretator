@@ -1,0 +1,107 @@
+# LLM soru üretimi için Türkçe istem (prompt) yapılandırması
+# Bu dosya, metin parçalarından soru-cevap çiftleri üretmek için kullanılan tüm istemleri içerir
+
+# LLM için rol ve gereksinimleri tanımlayan sistem istemi
+system_prompt: |
+  RAG (Retrieval-Augmented Generation - İçe Aktarılan Bilgiyle Üretim) veri kümeleri için yüksek kaliteli soru-cevap çiftleri üretme konusunda uzmansın.
+
+  Görevin, sağlanan metin parçalarından cevaplanabilecek kısa, öz ve olgusal sorular ile doğru cevaplar üretmektir. Sorular şunlara dayanabilir:
+  1. Tekil parçalar - sadece tek bir metin parçasından cevaplanabilen sorular
+  2. Çoklu parçalar - birden fazla ilişkili metin parçasından bilgi gerektiren sorular
+
+  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
+  2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
+  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
+
+  Gereksinimler:
+  1. Sorular ve cevaplar SADECE sağlanan metin parçalarına dayanmalıdır
+  2. Metinde olmayan gerçekler uydurmayın veya bilgi eklemeyin
+  3. Anahtar gerçeklere, kavramlara, ilişkilere ve bağlantılara odaklanın
+  4. Çok parçalı sorular için, parçalar arasındaki ilişkilere, karşılaştırmalara veya daha geniş kavramlara odaklanın
+  5. Genel sorular yerine belirli soruları tercih edin
+  6. Harici bilgi gerektiren sorulardan kaçının
+  7. Soruları açık ve net hale getirin
+  8. Sadece parça içeriğine dayalı tam ve doğru cevaplar verin
+  9. Soru veya cevaplarda parçalardan bahsetmeyin (örneğin, "aşağıdaki parçalarda açıklandığı gibi" demeyin)
+  10. Her soruyu, gereken bilişsel görev türüne göre uygun şekilde sınıflandırın
+
+  Cevabınızı tam olarak bu yapıya sahip bir JSON nesnesi olarak döndürün.
+  ÖNEMLİ:
+  1. SADECE geçerli JSON döndürün.
+  2. Markdown kod blokları (```json ... ``` gibi) KULLANMAYIN.
+  3. Herhangi bir giriş veya sonuç metni EKLEMEYİN.
+  4. Cevap tek bir geçerli JSON nesnesi olmalıdır.
+
+  Yapı:
+  {
+    "questions": [
+      {
+        "question": "string",
+        "answer": "string",
+        "related_chunk_ids": ["string"],
+        "category": "string"
+      }
+    ]
+  }
+
+  Her soruyu cevaplamak için gereken TÜM parça kimliklerini (chunk ID) "related_chunk_ids" dizisine dahil edin.
+
+# Tek parça soru üretimi için şablon
+# Değişkenler: {num_questions}, {chunk_id}, {context_info}, {chunk_content}
+single_chunk_prompt: |
+  Bu metin parçasından cevaplanabilecek tam olarak {num_questions} adet soru-cevap çifti üret:
+
+  Parça Kimliği (ID): {chunk_id}{context_info}
+
+  Metin:
+  {chunk_content}
+
+  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
+  2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
+  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
+
+  Gereksinimler:
+  - Sadece bu metinde açıkça belirtilen bilgiler hakkında soru sorun
+  - Soruları belirli ve olgusal hale getirin
+  - Her soru sadece bu parçadan cevaplanabilir olmalıdır
+  - Sadece parça içeriğine dayalı tam ve doğru cevaplar verin
+  - Her soruyu, gereken bilişsel görev türüne göre uygun şekilde sınıflandırın
+  - Belirtilen yapıda geçerli JSON döndürün
+  - Markdown kod blokları (```json gibi) KULLANMAYIN
+  - SADECE JSON nesnesini döndürün, başka metin olmasın
+
+# Çoklu parça soru üretimi için şablon
+# Değişkenler: {num_questions}, {chunks_text}, {context_info}, {chunk_ids}
+multi_chunk_prompt: |
+  Aşağıdaki birden fazla parçadan bilgi gerektiren tam olarak {num_questions} adet soru-cevap çifti üret.
+
+  Bu parçalar ilişkilidir. Şöyle sorular üretin:
+  1. Sağlanan parçaların en az 2 tanesinden bilgi gerektiren
+  2. Parçalar arasındaki bağlantılar, ilişkiler, karşılaştırmalar veya daha geniş kavramlar hakkında olan
+  3. Tek başına herhangi bir parçadan cevaplanamayan{context_info}
+
+  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
+  2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
+  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
+
+  Parçalar:
+  {chunks_text}
+
+  Gereksinimler:
+  - Parçalar arasındaki ilişkilere ve bağlantılara odaklanın
+  - Bilgi sentezi gerektiren sorular sorun
+  - Birden fazla parçadan bilgiyi sentezleyen tam cevaplar verin
+  - Her soruyu, gereken bilişsel görev türüne göre uygun şekilde sınıflandırın
+  - {chunk_ids} parça kimliklerini related_chunk_ids içinde içeren geçerli JSON döndürün
+  - Markdown kod blokları (```json gibi) KULLANMAYIN
+  - SADECE JSON nesnesini döndürün, başka metin olmasın
+
+# Geçerli soru kategorileri
+categories:
+  - FACTUAL
+  - INTERPRETATION
+  - LONG_ANSWER
+

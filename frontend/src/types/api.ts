@@ -3,7 +3,7 @@
 export interface IngestOptions {
   chunk_size: number
   chunk_overlap: number
-  split_strategy: 'recursive' | 'sentence' | 'header_aware'
+  split_strategy: 'recursive' | 'header_aware'
   total_questions: number
   llm_model: string
   reingest: boolean
@@ -84,4 +84,12 @@ export interface HealthStatus {
   environment: string
   services: Record<string, 'ok' | 'error'>
   message: string
+}
+
+export interface ConfigResponse {
+  prompt_language: string
+  llm_provider: string
+  default_chunk_size: number
+  default_chunk_overlap: number
+  default_total_questions: number
 } 

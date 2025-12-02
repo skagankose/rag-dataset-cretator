@@ -80,16 +80,24 @@ class WikipediaHTMLCleaner:
                         else:
                             current_headings[level-1] = heading_text
                     
-                    # Create markdown heading
-                    markdown_heading = f"{'#' * level} {heading_text}\n\n"
-                    content_parts.append(markdown_heading)
+                    # Create MediaWiki-style heading (for consistent splitting)
+                    # Ensure proper spacing: newline before if previous content exists,
+                    # and double newline after header
+                    equals = '=' * level
+                    mediawiki_heading = f"{equals} {heading_text} {equals}\n\n"
+                    
+                    # Ensure header starts on new line if there's previous content
+                    if content_parts and not content_parts[-1].endswith('\n\n'):
+                        content_parts[-1] += '\n\n'
+                    
+                    content_parts.append(mediawiki_heading)
                     
                     # Track sections
                     sections.append({
                         'level': level,
                         'title': heading_text,
                         'heading_path': create_heading_path(current_headings[:level]),
-                        'start_pos': len(''.join(content_parts)) - len(markdown_heading)
+                        'start_pos': len(''.join(content_parts)) - len(mediawiki_heading)
                     })
                     
                 elif element.name in ['p', 'div']:

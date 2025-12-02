@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import articles, dataset, files, health, ingest
+from .api import articles, config, dataset, files, health, ingest
 from .core.config import settings
 from .core.logging import setup_logging
 
@@ -48,6 +48,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router, tags=["Health"])
+app.include_router(config.router, tags=["Configuration"])
 app.include_router(ingest.router, tags=["Ingestion"])
 app.include_router(articles.router, tags=["Articles"])
 app.include_router(dataset.router, tags=["Dataset"])

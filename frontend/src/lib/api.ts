@@ -6,6 +6,7 @@ import type {
   ChunkListItem,
   DatasetResponse,
   IngestOptions,
+  ConfigResponse,
 } from '../types/api'
 
 // Base API URL - Backend service accessible at the deployed IP address
@@ -133,4 +134,10 @@ export async function getFileUrl(articleId: string, filename: string): Promise<s
 // Server-Sent Events for ingestion progress
 export function createIngestionEventSource(runId: string): EventSource {
   return new EventSource(`${API_BASE_URL}/ingest/stream/${runId}`)
+}
+
+// Configuration API
+export async function getConfig(): Promise<ConfigResponse> {
+  const response = await fetch(`${API_BASE_URL}/config`)
+  return handleResponse<ConfigResponse>(response)
 } 

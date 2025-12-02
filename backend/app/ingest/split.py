@@ -4,13 +4,6 @@ import re
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple
 
-try:
-    import spacy
-    from spacy.lang.en import English
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-
 from ..core.errors import SplittingError
 from ..core.logging import get_logger
 from ..utils.ids import generate_chunk_id
@@ -198,182 +191,34 @@ class RecursiveTextSplitter(TextSplitter):
         )
 
 
-class SentenceTextSplitter(TextSplitter):
-    """Sentence-based text splitter using spaCy or NLTK."""
-    
-    def __init__(self, chunk_size: int = 1200, chunk_overlap: int = 200):
-        super().__init__(chunk_size, chunk_overlap)
-        self.nlp = None
-        
-        if SPACY_AVAILABLE:
-            try:
-                # Try to load spaCy model
-                self.nlp = spacy.load("en_core_web_sm")
-            except OSError:
-                logger.warning("spaCy model not found, falling back to simple sentence splitting")
-    
-    def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
-        """Split text by sentences."""
-        logger.info(f"Splitting text with sentence strategy: {len(text)} chars")
-        
-        # Get sentences
-        if self.nlp:
-            sentences = self._split_with_spacy(text)
-        else:
-            sentences = self._split_simple(text)
-        
-        # Group sentences into chunks
-        chunks = []
-        sections = sections or []
-        
-        current_chunk_sentences = []
-        current_length = 0
-        chunk_index = 0
-        
-        for sentence in sentences:
-            sentence_length = len(sentence)
-            
-            # Check if adding this sentence would exceed chunk size
-            if current_length + sentence_length <= self.chunk_size or not current_chunk_sentences:
-                current_chunk_sentences.append(sentence)
-                current_length += sentence_length
-            else:
-                # Create chunk from current sentences
-                if current_chunk_sentences:
-                    chunk_content = " ".join(current_chunk_sentences)
-                    start_char = text.find(current_chunk_sentences[0])
-                    end_char = start_char + len(chunk_content)
-                    
-                    chunk = self._create_chunk(
-                        chunk_index,
-                        chunk_content,
-                        start_char,
-                        end_char,
-                        sections
-                    )
-                    chunks.append(chunk)
-                    chunk_index += 1
-                
-                # Start new chunk with overlap
-                overlap_sentences = self._get_overlap_sentences(
-                    current_chunk_sentences,
-                    self.chunk_overlap
-                )
-                
-                current_chunk_sentences = overlap_sentences + [sentence]
-                current_length = sum(len(s) for s in current_chunk_sentences)
-        
-        # Add final chunk
-        if current_chunk_sentences:
-            chunk_content = " ".join(current_chunk_sentences)
-            start_char = text.find(current_chunk_sentences[0])
-            end_char = start_char + len(chunk_content)
-            
-            chunk = self._create_chunk(
-                chunk_index,
-                chunk_content,
-                start_char,
-                end_char,
-                sections
-            )
-            chunks.append(chunk)
-        
-        logger.info(f"Created {len(chunks)} chunks from {len(sentences)} sentences")
-        return chunks
-    
-    def _split_with_spacy(self, text: str) -> List[str]:
-        """Split text into sentences using spaCy."""
-        doc = self.nlp(text)
-        return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
-    
-    def _split_simple(self, text: str) -> List[str]:
-        """Simple sentence splitting using regex."""
-        # Split on sentence boundaries
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        return [s.strip() for s in sentences if s.strip()]
-    
-    def _get_overlap_sentences(self, sentences: List[str], overlap_chars: int) -> List[str]:
-        """Get sentences for overlap based on character count."""
-        if not sentences or overlap_chars <= 0:
-            return []
-        
-        overlap_sentences = []
-        current_overlap = 0
-        
-        # Take sentences from the end until we reach overlap size
-        for sentence in reversed(sentences):
-            if current_overlap + len(sentence) <= overlap_chars:
-                overlap_sentences.insert(0, sentence)
-                current_overlap += len(sentence)
-            else:
-                break
-        
-        return overlap_sentences
-    
-    def _create_chunk(
-        self,
-        index: int,
-        content: str,
-        start_char: int,
-        end_char: int,
-        sections: List[Dict]
-    ) -> ChunkInfo:
-        """Create a chunk with metadata."""
-        chunk_id = generate_chunk_id(index)
-        
-        # Find the section this chunk belongs to
-        section = ""
-        heading_path = "Lead"
-        
-        for sec in sections:
-            if sec['start_pos'] <= start_char:
-                section = sec['title']
-                heading_path = sec['heading_path']
-            else:
-                break
-        
-        return ChunkInfo(
-            id=chunk_id,
-            content=content.strip(),
-            start_char=start_char,
-            end_char=end_char,
-            section=section,
-            heading_path=heading_path,
-        )
-
-
 class HeaderAwareTextSplitter(TextSplitter):
-    """Header-aware text splitter that splits only by headers, creating one chunk per section regardless of size."""
+    """Header-aware text splitter that creates one chunk per section.
+    
+    Each MediaWiki-style header (== Header ==) or Markdown header (## Header)
+    defines a section boundary. Each section becomes exactly one chunk,
+    regardless of its size. This ensures semantic coherence and prevents
+    mixing content from different sections.
+    """
     
     def __init__(self, chunk_size: int = 1200, chunk_overlap: int = 200):
         super().__init__(chunk_size, chunk_overlap)
         
         # Regex patterns to match both markdown and MediaWiki headers
+        # NOTE: MediaWiki headers are detected anywhere in the line, not only at the start.
+        # This is important because cleaned Wikipedia text can have inline headers like:
+        # "Lead sentence. == Header == next sentence"
         self.markdown_header_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
-        self.mediawiki_header_pattern = re.compile(r'^(={1,6})\s*(.+?)\s*\1\s*$', re.MULTILINE)
-        
-        # Fallback separators for splitting within a section
-        self.fallback_separators = [
-            "\n\n\n",  # Multiple newlines
-            "\n\n",    # Paragraph breaks
-            "\n",      # Single newlines
-            ". ",      # Sentence endings
-            "! ",      # Exclamation sentences
-            "? ",      # Question sentences
-            "; ",      # Semicolons
-            ", ",      # Commas
-            " ",       # Spaces
-            "",        # Characters
-        ]
+        self.mediawiki_header_pattern = re.compile(r'(={1,6})\s*(.+?)\s*\1(?=\s|$)')
     
     def split_text(self, text: str, sections: List[Dict] = None) -> List[ChunkInfo]:
         """Split text by header sections only, creating one chunk per section regardless of size."""
         logger.info(f"Splitting text with header-aware strategy: {len(text)} chars")
         
         chunks = []
-        sections = sections or []
+        metadata_sections = sections or []
         
         # Find all headers and create section boundaries
+        # This extracts the actual text sections from content
         text_sections = self._extract_sections(text)
         
         logger.info(f"Found {len(text_sections)} sections for splitting")
@@ -381,7 +226,7 @@ class HeaderAwareTextSplitter(TextSplitter):
         chunk_index = 0
         
         for section in text_sections:
-            section_chunks = self._split_section(section, chunk_index, sections)
+            section_chunks = self._split_section(section, chunk_index, metadata_sections)
             chunks.extend(section_chunks)
             chunk_index += len(section_chunks)
         
@@ -389,156 +234,107 @@ class HeaderAwareTextSplitter(TextSplitter):
         return chunks
     
     def _extract_sections(self, text: str) -> List[Dict]:
-        """Extract sections based on headers."""
-        # Split text by MediaWiki headers (== Header ==)
+        """Extract sections based on headers.
+        
+        Handles all MediaWiki header levels (= to ======).
+        """
         sections = []
         
-        # First, handle the lead section (content before first header)
-        parts = text.split('==')
-        if parts[0].strip():
-            sections.append({
-                'header': 'Lead',
-                'header_level': 0,
-                'start_pos': 0,
-                'end_pos': len(parts[0]),
-                'content': parts[0].strip()
-            })
+        # Regex pattern to match MediaWiki headers: = Header =, == Header ==, === Header ===, etc.
+        # Note: The closing = must be followed by whitespace or end of line, not other text.
+        # We deliberately do NOT anchor to start-of-line so inline headers are also detected.
+        header_pattern = re.compile(r'(={1,6})\s*(.+?)\s*\1(?=\s|$)')
         
-        # Process remaining sections
-        current_pos = len(parts[0])
+        # Find all headers
+        matches = list(header_pattern.finditer(text))
         
-        for i in range(1, len(parts)-1, 2):  # Step by 2 to handle header and content pairs
-            header_text = parts[i].strip()
-            content_text = parts[i+1] if i+1 < len(parts) else ""
+        # Handle lead section (content before first header)
+        if matches:
+            first_header_start = matches[0].start()
+            if first_header_start > 0:
+                lead_content = text[:first_header_start].strip()
+                if lead_content:
+                    sections.append({
+                        'header': 'Lead',
+                        'header_level': 0,
+                        'start_pos': 0,
+                        'end_pos': first_header_start,
+                        'content': lead_content
+                    })
+        else:
+            # No headers found, treat entire content as lead
+            if text.strip():
+                sections.append({
+                    'header': 'Lead',
+                    'header_level': 0,
+                    'start_pos': 0,
+                    'end_pos': len(text),
+                    'content': text.strip()
+                })
+            return sections
+        
+        # Process each header and its content
+        for i, match in enumerate(matches):
+            equals = match.group(1)  # The === part
+            header_title = match.group(2).strip()  # The title text
+            header_level = len(equals)
             
-            # Skip empty headers
-            if not header_text:
-                continue
-                
-            # Calculate positions
-            header_start = current_pos
-            header_with_markers = f"== {header_text} =="
-            content_start = header_start + len(header_with_markers)
-            content_end = content_start + len(content_text)
+            # Full header with markers
+            header_with_markers = f"{equals} {header_title} {equals}"
             
-            # Create section with header included in content
-            section_content = f"== {header_text} =={content_text}"
+            # Start position of this header
+            header_start = match.start()
+            header_end = match.end()
             
-            if section_content.strip():  # Only add sections with content
+            # Find content end (either next header or end of text)
+            if i + 1 < len(matches):
+                content_end = matches[i + 1].start()
+            else:
+                content_end = len(text)
+            
+            # Extract section content (header + content)
+            section_content = text[header_start:content_end].strip()
+            
+            # Get content after header (exclude the header line itself)
+            content_after_header = text[header_end:content_end].strip()
+            
+            # Only add sections with actual content (not just empty or whitespace)
+            if section_content and content_after_header:
                 sections.append({
                     'header': header_with_markers,
-                    'header_level': 2,  # MediaWiki headers with == are level 2
+                    'header_level': header_level,
                     'start_pos': header_start,
                     'end_pos': content_end,
-                    'content': section_content.strip(),
-                    'header_line_end': content_start
+                    'content': section_content,
+                    'header_line_end': header_end
                 })
-            
-            current_pos = content_end
         
         return sections
     
     def _split_section(self, section: Dict, start_chunk_index: int, metadata_sections: List[Dict]) -> List[ChunkInfo]:
-        """Split section into chunks, keeping small sections as single chunks."""
+        """Split section into chunks - each section becomes exactly one chunk regardless of size.
+        
+        This ensures that Wikipedia-style sections are not combined, maintaining
+        clear semantic boundaries. Each == Header == section becomes its own chunk.
+        """
         content = section['content']
         header = section['header']
-        section_start = section.get('header_line_end', section['start_pos'])
+        section_start = section['start_pos']
         
         logger.debug(f"Processing section '{header}': {len(content)} chars")
         
-        # If section fits in chunk size, keep it as a single chunk
-        if len(content) <= self.chunk_size:
-            chunk = self._create_chunk_with_header(
-                start_chunk_index,
-                content,
-                section_start,
-                section['end_pos'],
-                header,
-                metadata_sections
-            )
-            logger.debug(f"Section '{header}' fits in chunk size, keeping as single chunk")
-            return [chunk]
-        
-        # Section is too large, split it into smaller chunks
-        chunks = []
-        chunk_index = start_chunk_index
-        
-        # First chunk should include the header
-        current_text = content
-        first_chunk_size = self.chunk_size - len(header) - 2  # Account for header and some spacing
-        
-        # Find a good split point for the first chunk
-        split_pos = self._find_section_split_point(current_text, 0, first_chunk_size)
-        first_chunk_content = current_text[:split_pos].strip()
-        
-        if first_chunk_content:
-            chunk = self._create_chunk_with_header(
-                chunk_index,
-                first_chunk_content,
-                section_start,
-                section_start + split_pos,
-                header,
-                metadata_sections
-            )
-            chunks.append(chunk)
-            chunk_index += 1
-        
-        # Process remaining content
-        remaining_text = current_text[split_pos:].strip()
-        current_pos = split_pos
-        
-        while remaining_text:
-            # Find next split point
-            if len(remaining_text) <= self.chunk_size:
-                split_pos = len(remaining_text)
-            else:
-                split_pos = self._find_section_split_point(remaining_text, 0, self.chunk_size)
-            
-            chunk_content = remaining_text[:split_pos].strip()
-            
-            if chunk_content:
-                abs_start = section_start + current_pos
-                abs_end = abs_start + len(chunk_content)
-                
-                chunk = self._create_chunk_with_header(
-                    chunk_index,
-                    chunk_content,
-                    abs_start,
-                    abs_end,
-                    header,
-                    metadata_sections
-                )
-                chunks.append(chunk)
-                chunk_index += 1
-            
-            remaining_text = remaining_text[split_pos:].strip()
-            current_pos += split_pos
-        
-        logger.debug(f"Split section '{header}' into {len(chunks)} chunks")
-        return chunks
-    
-    def _find_section_split_point(self, content: str, start_pos: int, max_end: int) -> int:
-        """Find the best split point within a section using fallback separators."""
-        chunk_text = content[start_pos:max_end]
-        
-        # Try each separator in order of preference
-        for separator in self.fallback_separators:
-            if separator == "":
-                # Character-level splitting - just use max_end
-                return max_end
-            
-            # Find the last occurrence of the separator in the chunk
-            last_sep_pos = chunk_text.rfind(separator)
-            if last_sep_pos != -1:
-                # Found separator, split after it
-                split_pos = start_pos + last_sep_pos + len(separator)
-                # Make sure we don't split too early (at least 50% of target chunk size)
-                min_split = start_pos + (self.chunk_size // 2)
-                if split_pos >= min_split:
-                    return split_pos
-        
-        # If no good separator found, split at max_end
-        return max_end
+        # ALWAYS keep each section as a single chunk - never combine sections
+        # This is crucial for Wikipedia articles where each section should be independently retrievable
+        chunk = self._create_chunk_with_header(
+            start_chunk_index,
+            content,
+            section_start,
+            section['end_pos'],
+            header,
+            metadata_sections
+        )
+        logger.debug(f"Section '{header}' -> 1 chunk ({len(content)} chars)")
+        return [chunk]
     
     def _create_chunk_with_header(
         self,
@@ -574,31 +370,12 @@ class HeaderAwareTextSplitter(TextSplitter):
             section=section,
             heading_path=heading_path,
         )
-    
-    def _calculate_overlap_start(self, text: str, chunk_start: int, chunk_end: int) -> int:
-        """This method is no longer used in the new section-based approach."""
-        # This method is kept for compatibility but not used in the new implementation
-        return chunk_end
-    
-    def _find_next_header_split_point(
-        self, text: str, start_pos: int, headers: List[re.Match]
-    ) -> Tuple[int, str]:
-        """This method is no longer used in the new section-based approach."""
-        # This method is kept for compatibility but not used in the new implementation
-        return len(text), "end of text"
-    
-    def _find_fallback_split_point(self, text: str, start_pos: int, max_end: int) -> int:
-        """This method is no longer used in the new section-based approach."""
-        # This method is kept for compatibility but not used in the new implementation
-        return max_end
 
 
 def create_text_splitter(strategy: str, chunk_size: int = 1200, chunk_overlap: int = 200) -> TextSplitter:
     """Create a text splitter based on strategy."""
     if strategy == "recursive":
         return RecursiveTextSplitter(chunk_size, chunk_overlap)
-    elif strategy == "sentence":
-        return SentenceTextSplitter(chunk_size, chunk_overlap)
     elif strategy == "header_aware":
         return HeaderAwareTextSplitter(chunk_size, chunk_overlap)
     else:
@@ -614,4 +391,4 @@ def split_content(
 ) -> List[ChunkInfo]:
     """Convenience function to split content."""
     splitter = create_text_splitter(strategy, chunk_size, chunk_overlap)
-    return splitter.split_text(content, sections) 
+    return splitter.split_text(content, sections)

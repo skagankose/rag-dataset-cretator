@@ -32,6 +32,29 @@ from .sse import ProgressLogger
 logger = get_logger("ingest.pipeline")
 
 
+def convert_markdown_to_mediawiki_headers(content: str) -> str:
+    """Convert standard markdown headers (## Header) to MediaWiki-style headers (== Header ==).
+    
+    Args:
+        content: Markdown content with standard headers
+        
+    Returns:
+        Content with MediaWiki-style headers
+    """
+    # Pattern to match markdown headers: one or more # followed by space and title
+    # Captures: (hashes) (title)
+    pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+    
+    def replace_header(match):
+        hashes = match.group(1)
+        title = match.group(2).strip()
+        # Convert # count to = count (markdown levels to mediawiki levels)
+        equals = '=' * len(hashes)
+        return f"{equals} {title} {equals}"
+    
+    return pattern.sub(replace_header, content)
+
+
 class IngestionPipeline:
     """Main ingestion pipeline for processing Wikipedia articles."""
     
@@ -267,6 +290,9 @@ class IngestionPipeline:
             # Generate article ID
             article_id = generate_article_id(url, title)
             
+            # Preprocess: Convert standard markdown headers to MediaWiki-style headers
+            content = convert_markdown_to_mediawiki_headers(content)
+            
             # Step 1: Parse Markdown structure
             await progress.cleaning("Parsing Markdown structure...")
             sections = self._parse_markdown_sections(content)
@@ -421,14 +447,22 @@ class IngestionPipeline:
             raise IngestionError(f"Pipeline failed: {e}") from e
 
     def _parse_markdown_sections(self, content: str) -> List[Dict[str, Any]]:
-        """Parse Markdown content to extract sections structure."""
+        """Parse Markdown content to extract sections structure.
+        
+        Supports both standard markdown (## Header) and MediaWiki-style (== Header ==) headers.
+        """
         sections = []
         current_headings = []
         
-        # Regex for Markdown headers
-        header_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+        # Regex for both Markdown and MediaWiki headers
+        markdown_header_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+        # MediaWiki headers can appear inline (not only at line start), so we do not anchor.
+        mediawiki_header_pattern = re.compile(r'(={1,6})\s*(.+?)\s*\1(?=\s|$)')
         
-        matches = list(header_pattern.finditer(content))
+        # Try MediaWiki pattern first (since we convert to it), fall back to markdown
+        matches = list(mediawiki_header_pattern.finditer(content))
+        if not matches:
+            matches = list(markdown_header_pattern.finditer(content))
         
         if not matches:
             # No headers, treat whole content as one section
@@ -448,10 +482,24 @@ class IngestionPipeline:
                 'start_pos': 0
             })
             
-        for match in matches:
+        for i, match in enumerate(matches):
             level = len(match.group(1))
             title = match.group(2).strip()
             start_pos = match.start()
+            header_end = match.end()
+            
+            # Determine content end (start of next header or end of text)
+            if i + 1 < len(matches):
+                content_end = matches[i + 1].start()
+            else:
+                content_end = len(content)
+            
+            # Check if section has actual content after the header
+            content_after_header = content[header_end:content_end].strip()
+            
+            # Skip empty sections (headers with no content)
+            if not content_after_header:
+                continue
             
             # Update heading hierarchy
             if level <= len(current_headings):

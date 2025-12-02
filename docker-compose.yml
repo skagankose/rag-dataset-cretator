@@ -26,6 +26,8 @@ services:
       - DEFAULT_CHUNK_OVERLAP=${DEFAULT_CHUNK_OVERLAP:-200}
       - DEFAULT_TOTAL_QUESTIONS=${DEFAULT_TOTAL_QUESTIONS:-10}
       - STRIP_SECTIONS=${STRIP_SECTIONS:-true}
+      # Prompts Configuration
+      - PROMPT_LANGUAGE=${PROMPT_LANGUAGE:-en}
     volumes:
       - ./backend:/app
       - ./backend/data:/app/data

@@ -2,9 +2,22 @@
 
 This directory contains configuration files for the RAG dataset creator application.
 
-## prompts.yaml
+## prompts.yaml (and prompts.tr.yaml)
 
-This file contains all prompts used for LLM-based question generation.
+This file contains all prompts used for LLM-based question generation. The application supports multiple languages for prompts.
+
+### Language Support
+
+The application can generate questions using prompts in different languages. The language is selected using the `PROMPT_LANGUAGE` environment variable.
+
+- **English (default)**: Set `PROMPT_LANGUAGE=en` (uses `prompts.yaml`)
+- **Turkish**: Set `PROMPT_LANGUAGE=tr` (uses `prompts.tr.yaml`)
+
+To add a new language:
+1. Create a new file `prompts.{lang}.yaml` in this directory
+2. Copy the structure from `prompts.yaml`
+3. Translate the content
+4. Set `PROMPT_LANGUAGE={lang}` in your `.env` file
 
 ### Structure
 

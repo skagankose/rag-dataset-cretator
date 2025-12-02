@@ -20,18 +20,34 @@ def _load_prompts_config() -> Dict:
     if _prompts_cache is not None:
         return _prompts_cache
     
+    # Get language setting from environment
+    lang = os.getenv("PROMPT_LANGUAGE", "en").lower()
+    
     # Get the path to the prompts config file
     config_dir = Path(__file__).parent.parent / "config"
-    prompts_file = config_dir / "prompts.yaml"
+    
+    # Select file based on language
+    if lang == "tr":
+        prompts_filename = "prompts.tr.yaml"
+    else:
+        prompts_filename = "prompts.yaml"
+        
+    prompts_file = config_dir / prompts_filename
     
     if not prompts_file.exists():
-        logger.error(f"Prompts config file not found at: {prompts_file}")
-        raise FileNotFoundError(f"Prompts config file not found: {prompts_file}")
+        # Fallback to default if language file missing (except for 'en' which must exist)
+        if lang != "en":
+            logger.warning(f"Prompts file for language '{lang}' not found at {prompts_file}. Falling back to English.")
+            prompts_file = config_dir / "prompts.yaml"
+            
+        if not prompts_file.exists():
+            logger.error(f"Prompts config file not found at: {prompts_file}")
+            raise FileNotFoundError(f"Prompts config file not found: {prompts_file}")
     
     try:
         with open(prompts_file, 'r', encoding='utf-8') as f:
             _prompts_cache = yaml.safe_load(f)
-        logger.info(f"Loaded prompts configuration from {prompts_file}")
+        logger.info(f"Loaded prompts configuration from {prompts_file} (Language: {lang})")
         return _prompts_cache
     except Exception as e:
         logger.error(f"Failed to load prompts config: {e}")

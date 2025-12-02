@@ -2,7 +2,7 @@
 
 import re
 from typing import Dict, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -47,9 +47,21 @@ class WikipediaFetcher:
         # Extract title from path
         path = parsed.path
         if path.startswith('/wiki/'):
-            title = path[6:]  # Remove '/wiki/' prefix
+            title = unquote(path[6:])  # Remove '/wiki/' prefix and decode
         else:
             raise FetchError(f"Invalid Wikipedia URL format: {url}", url)
+        
+        # Check for non-article namespaces (special pages, templates, etc.)
+        non_article_prefixes = [
+            'Wikipedia:', 'Vikipedi:', 'Special:', 'Özel:',
+            'Template:', 'Şablon:', 'Help:', 'Yardım:',
+            'Category:', 'Kategori:', 'Portal:', 'File:', 'Dosya:',
+            'User:', 'Kullanıcı:', 'Talk:', 'Tartışma:'
+        ]
+        
+        for prefix in non_article_prefixes:
+            if title.startswith(prefix):
+                raise FetchError(f"Cannot fetch non-article page (namespace: {prefix}). Please use regular Wikipedia article URLs.", url)
         
         # Construct API base URL
         api_base = f"https://{lang}.wikipedia.org/w/api.php"
@@ -108,6 +120,7 @@ class WikipediaFetcher:
             # Extract content
             content = page.get("extract", "")
             if not content:
+                logger.error(f"No content for {url}. Page data: {page}")
                 raise FetchError("No content found in Wikipedia page", url)
             
             # Get actual title (may differ from URL title)
@@ -144,10 +157,13 @@ class WikipediaFetcher:
             return result
             
         except httpx.RequestError as e:
+            logger.error(f"Network error for {url}: {e}")
             raise FetchError(f"Network error fetching Wikipedia page: {e}", url) from e
         except Exception as e:
             if isinstance(e, FetchError):
+                logger.error(f"Fetch error for {url}: {e}")
                 raise
+            logger.error(f"Unexpected error for {url}: {e}", exc_info=True)
             raise FetchError(f"Unexpected error fetching Wikipedia page: {e}", url) from e
 
 

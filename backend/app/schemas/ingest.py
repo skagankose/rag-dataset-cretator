@@ -9,7 +9,7 @@ class IngestOptions(BaseModel):
     """Ingestion configuration options."""
     chunk_size: int = Field(default=1200, ge=100, le=5000)
     chunk_overlap: int = Field(default=200, ge=0, le=1000)
-    split_strategy: Literal["recursive", "sentence", "header_aware"] = Field(default="header_aware")
+    split_strategy: Literal["recursive", "header_aware"] = Field(default="header_aware")
     total_questions: int = Field(default=10, ge=1, le=50)
     llm_model: Optional[str] = Field(default=None)
     reingest: bool = Field(default=False)
