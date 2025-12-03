@@ -105,3 +105,31 @@ categories:
   - INTERPRETATION
   - LONG_ANSWER
 
+# Validation system prompt for checking question-answer correctness
+validation_system_prompt: |
+  You evaluate question-answer pairs for accuracy.
+  
+  Check if:
+  - Question is clear
+  - Answer is accurate based on provided text chunks
+  - Answer fully addresses the question
+  - Chunks contain all necessary information
+  
+  Return JSON: {"is_correct": boolean, "reason": "brief explanation"}
+  
+  Keep reason concise (max 50 words). Return ONLY valid JSON.
+
+# Validation user prompt for checking a single question-answer pair
+# Variables: {question}, {answer}, {chunks_content}
+validation_prompt: |
+  Evaluate this question-answer pair:
+  
+  Question: {question}
+  
+  Answer: {answer}
+  
+  Text Chunks:
+  {chunks_content}
+  
+  Is the answer correct and complete based on the chunks? Return JSON with "is_correct" (boolean) and "reason" (brief explanation).
+

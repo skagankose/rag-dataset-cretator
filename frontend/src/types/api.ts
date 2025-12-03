@@ -92,4 +92,12 @@ export interface ConfigResponse {
   default_chunk_size: number
   default_chunk_overlap: number
   default_total_questions: number
+}
+
+export interface ValidationResponse {
+  article_id: string
+  is_correct: boolean
+  reason: string
+  validated_count: number
+  total_questions: number
 } 

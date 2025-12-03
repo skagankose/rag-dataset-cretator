@@ -105,3 +105,31 @@ categories:
   - INTERPRETATION
   - LONG_ANSWER
 
+# Soru-cevap doğruluğunu kontrol etmek için doğrulama sistem istemi
+validation_system_prompt: |
+  Soru-cevap çiftlerinin doğruluğunu değerlendiriyorsunuz.
+  
+  Kontrol edin:
+  - Soru açık mı
+  - Cevap verilen metin parçalarına göre doğru mu
+  - Cevap soruyu tam olarak cevaplıyor mu
+  - Parçalar gerekli bilgileri içeriyor mu
+  
+  JSON döndürün: {"is_correct": boolean, "reason": "kısa açıklama"}
+  
+  Açıklamayı kısa tutun (max 50 kelime). SADECE geçerli JSON döndürün.
+
+# Tek bir soru-cevap çiftini kontrol etmek için doğrulama kullanıcı istemi
+# Değişkenler: {question}, {answer}, {chunks_content}
+validation_prompt: |
+  Bu soru-cevap çiftini değerlendirin:
+  
+  Soru: {question}
+  
+  Cevap: {answer}
+  
+  Metin Parçaları:
+  {chunks_content}
+  
+  Cevap parçalara göre doğru ve eksiksiz mi? "is_correct" (boolean) ve "reason" (kısa açıklama) içeren JSON döndürün.
+

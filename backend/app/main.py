@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import articles, config, dataset, files, health, ingest
+from .api import articles, config, dataset, files, health, ingest, validation
 from .core.config import settings
 from .core.logging import setup_logging
 
@@ -53,6 +53,7 @@ app.include_router(ingest.router, tags=["Ingestion"])
 app.include_router(articles.router, tags=["Articles"])
 app.include_router(dataset.router, tags=["Dataset"])
 app.include_router(files.router, tags=["Files"])
+app.include_router(validation.router, tags=["Validation"])
 
 
 @app.get("/")

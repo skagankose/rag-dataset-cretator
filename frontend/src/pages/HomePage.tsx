@@ -17,9 +17,12 @@ import {
   Cog6ToothIcon,
   GlobeAltIcon,
   FolderIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/react/24/outline'
 
-import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles, getConfig } from '../lib/api'
+import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles, getConfig, validateArticle } from '../lib/api'
 import type { IngestOptions } from '../types/api'
 
 function HomePage() {
@@ -44,6 +47,10 @@ function HomePage() {
     // llm_model will be set automatically by backend based on provider
     reingest: false,
   })
+  
+  // Validation state
+  const [validationStatus, setValidationStatus] = useState<Record<string, 'correct' | 'incorrect' | 'validating' | null>>({})
+  const [isValidating, setIsValidating] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -357,6 +364,72 @@ function HomePage() {
       toast.dismiss()
       toast.error(`Failed to download articles: ${error.message}`)
       console.error('Bulk download error:', error)
+    }
+  }
+
+  const handleValidateSelectedArticles = async () => {
+    if (selectedArticles.length === 0) {
+      toast.error('No articles selected for validation')
+      return
+    }
+
+    setIsValidating(true)
+    const toastId = toast.loading(`Validating ${selectedArticles.length} article(s)...`)
+
+    try {
+      // Validate all selected articles in parallel
+      const validationPromises = selectedArticles.map(async (articleId) => {
+        // Mark as validating
+        setValidationStatus(prev => ({ ...prev, [articleId]: 'validating' }))
+        
+        try {
+          const result = await validateArticle(articleId)
+          
+          // Update validation status
+          setValidationStatus(prev => ({ 
+            ...prev, 
+            [articleId]: result.is_correct ? 'correct' : 'incorrect' 
+          }))
+          
+          return { articleId, result }
+        } catch (error) {
+          console.error(`Failed to validate article ${articleId}:`, error)
+          setValidationStatus(prev => ({ ...prev, [articleId]: null }))
+          return { articleId, error }
+        }
+      })
+
+      const results = await Promise.all(validationPromises)
+      
+      // Count results
+      const correctCount = results.filter(r => r.result?.is_correct).length
+      const incorrectCount = results.filter(r => r.result && !r.result.is_correct).length
+      const errorCount = results.filter(r => r.error).length
+      
+      toast.dismiss(toastId)
+      
+      if (errorCount > 0) {
+        toast.error(
+          `Validation completed with errors: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} failed`,
+          { duration: 6000 }
+        )
+      } else if (incorrectCount > 0) {
+        toast.error(
+          `Validation completed: ${correctCount} correct, ${incorrectCount} incorrect`,
+          { duration: 6000 }
+        )
+      } else {
+        toast.success(
+          `All ${correctCount} article(s) validated successfully!`,
+          { duration: 4000 }
+        )
+      }
+    } catch (error) {
+      toast.dismiss(toastId)
+      toast.error(`Validation failed: ${error.message}`)
+      console.error('Validation error:', error)
+    } finally {
+      setIsValidating(false)
     }
   }
 
@@ -1356,13 +1429,22 @@ function HomePage() {
               </div>
               <div className="flex items-center space-x-3">
                 <button
+                  onClick={handleValidateSelectedArticles}
+                  disabled={selectedArticles.length === 0 || isValidating}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                  title={`Validate ${selectedArticles.length} selected articles`}
+                >
+                  <ClipboardDocumentCheckIcon className="h-4 w-4" />
+                  <span>{isValidating ? 'Validating...' : `Validate (${selectedArticles.length})`}</span>
+                </button>
+                <button
                   onClick={handleDownloadAllArticles}
                   disabled={selectedArticles.length === 0}
                   className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
                   title={`Download ${selectedArticles.length} selected articles`}
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
-                  <span>Download Selected ({selectedArticles.length})</span>
+                  <span>Download ({selectedArticles.length})</span>
                 </button>
                 <button
                   onClick={handleDeleteSelectedArticles}
@@ -1371,7 +1453,7 @@ function HomePage() {
                   title={`Delete ${selectedArticles.length} selected articles`}
                 >
                   <TrashIcon className="h-4 w-4" />
-                  <span>Delete Selected ({selectedArticles.length})</span>
+                  <span>Delete ({selectedArticles.length})</span>
                 </button>
               </div>
             </div>
@@ -1412,9 +1494,20 @@ function HomePage() {
                         <DocumentTextIcon className="h-5 w-5 text-gray-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-medium text-black truncate">
-                          {article.title}
-                        </h3>
+                        <div className="flex items-center space-x-2">
+                          <h3 className="text-sm font-medium text-black truncate">
+                            {article.title}
+                          </h3>
+                          {validationStatus[article.id] === 'validating' && (
+                            <ArrowPathIcon className="h-4 w-4 text-blue-500 animate-spin flex-shrink-0" />
+                          )}
+                          {validationStatus[article.id] === 'correct' && (
+                            <CheckCircleIcon className="h-5 w-5 text-green-500 flex-shrink-0" title="Validation passed" />
+                          )}
+                          {validationStatus[article.id] === 'incorrect' && (
+                            <XCircleIcon className="h-5 w-5 text-red-500 flex-shrink-0" title="Validation failed" />
+                          )}
+                        </div>
                         <p className="text-xs text-gray-600 mt-1">
                           {article.lang} • {new Date(article.created_at).toLocaleDateString()}
                         </p>

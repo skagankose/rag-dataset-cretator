@@ -146,4 +146,25 @@ def validate_question_response(response: Dict) -> bool:
         if not all(isinstance(chunk_id, str) for chunk_id in question["related_chunk_ids"]):
             return False
     
-    return True 
+    return True
+
+
+def get_validation_system_prompt() -> str:
+    """Get the system prompt for validating question-answer pairs."""
+    config = _load_prompts_config()
+    return config["validation_system_prompt"]
+
+
+def get_validation_prompt(
+    question: str,
+    answer: str,
+    chunks_content: str,
+) -> str:
+    """Get the user prompt for validating a question-answer pair with chunks."""
+    config = _load_prompts_config()
+    
+    return config["validation_prompt"].format(
+        question=question,
+        answer=answer,
+        chunks_content=chunks_content
+    ) 

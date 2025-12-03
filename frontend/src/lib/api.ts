@@ -7,6 +7,7 @@ import type {
   DatasetResponse,
   IngestOptions,
   ConfigResponse,
+  ValidationResponse,
 } from '../types/api'
 
 // Base API URL - Backend service accessible at the deployed IP address
@@ -140,4 +141,12 @@ export function createIngestionEventSource(runId: string): EventSource {
 export async function getConfig(): Promise<ConfigResponse> {
   const response = await fetch(`${API_BASE_URL}/config`)
   return handleResponse<ConfigResponse>(response)
+}
+
+// Validation API
+export async function validateArticle(articleId: string): Promise<ValidationResponse> {
+  const response = await fetch(`${API_BASE_URL}/validate/${articleId}`, {
+    method: 'POST',
+  })
+  return handleResponse<ValidationResponse>(response)
 } 
