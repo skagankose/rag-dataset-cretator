@@ -54,7 +54,7 @@ function HomePage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10)
+  const [itemsPerPage] = useState(100)
 
   // File upload state
   const [files, setFiles] = useState<FileList | null>(null)
@@ -174,6 +174,37 @@ function HomePage() {
     } else {
       setSelectedArticles(articles.map(article => article.id))
     }
+  }
+
+  const handleSelectPage = () => {
+    const currentPageIds = currentArticles.map(article => article.id)
+    const allCurrentPageSelected = currentPageIds.every(id => selectedArticles.includes(id))
+    
+    if (allCurrentPageSelected) {
+      // Deselect all articles on current page
+      setSelectedArticles(prev => prev.filter(id => !currentPageIds.includes(id)))
+    } else {
+      // Select all articles on current page
+      setSelectedArticles(prev => {
+        const newSelection = [...prev]
+        currentPageIds.forEach(id => {
+          if (!newSelection.includes(id)) {
+            newSelection.push(id)
+          }
+        })
+        return newSelection
+      })
+    }
+  }
+
+  const handleSelectFailed = () => {
+    // Find all articles with validation status 'incorrect'
+    const failedArticleIds = articles
+      .filter(article => validationStatus[article.id] === 'incorrect')
+      .map(article => article.id)
+    
+    // Deselect everything and select only failed articles
+    setSelectedArticles(failedArticleIds)
   }
 
   const handleDeleteSelectedArticles = async () => {
@@ -757,8 +788,8 @@ function HomePage() {
   }
 
   const fetchRandomBulkArticles = async () => {
-    if (randomArticleCount < 1 || randomArticleCount > 20) {
-      toast.error('Please enter a number between 1 and 20')
+    if (randomArticleCount < 1 || randomArticleCount > 1000) {
+      toast.error('Please enter a number between 1 and 1000')
       return
     }
 
@@ -1295,13 +1326,13 @@ function HomePage() {
                 <div className="flex items-end space-x-3">
                   <div>
                     <label htmlFor="random-count" className="block text-xs font-medium text-gray-600 mb-2">
-                      Number of articles (1-20)
+                      Number of articles (1-1000)
                     </label>
                     <input
                       type="number"
                       id="random-count"
                       min="1"
-                      max="20"
+                      max="1000"
                       value={randomArticleCount}
                       onChange={(e) => setRandomArticleCount(parseInt(e.target.value) || 1)}
                       className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-black focus:ring-2 focus:ring-gray-900 focus:border-transparent"
@@ -1405,27 +1436,12 @@ function HomePage() {
         {/* Articles List */}
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="p-8">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-3">
-                  <FolderIcon className="h-6 w-6 text-gray-900" />
-                  <h2 className="text-xl font-medium text-black">
-                    All Articles
-                  </h2>
-                </div>
-                {articles.length > 0 && (
-                  <div className="flex items-center space-x-4">
-                    <span className="text-sm text-gray-600">
-                      {articles.length} total • Page {currentPage} of {totalPages}
-                    </span>
-                    <button
-                      onClick={handleSelectAll}
-                      className="text-sm text-gray-900 hover:text-gray-700 font-medium"
-                    >
-                      {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
-                    </button>
-                  </div>
-                )}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <FolderIcon className="h-6 w-6 text-gray-900" />
+                <h2 className="text-xl font-medium text-black">
+                  All Articles
+                </h2>
               </div>
               <div className="flex items-center space-x-3">
                 <button
@@ -1457,6 +1473,38 @@ function HomePage() {
                 </button>
               </div>
             </div>
+            
+            {articles.length > 0 && (
+              <div className="flex items-center justify-between mb-6 pt-4 border-t border-gray-200">
+                <div className="flex items-center space-x-4">
+                  <span className="text-sm text-gray-600">
+                    {articles.length} total • Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={handleSelectPage}
+                    className="text-sm text-gray-900 hover:text-gray-700 font-medium"
+                  >
+                    {currentArticles.every(article => selectedArticles.includes(article.id)) && currentArticles.length > 0
+                      ? 'Deselect Page' 
+                      : 'Select Page'}
+                  </button>
+                  <button
+                    onClick={handleSelectAll}
+                    className="text-sm text-gray-900 hover:text-gray-700 font-medium"
+                  >
+                    {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  <button
+                    onClick={handleSelectFailed}
+                    disabled={!articles.some(article => validationStatus[article.id] === 'incorrect')}
+                    className="text-sm text-red-600 hover:text-red-700 font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+                    title="Select only failed articles"
+                  >
+                    Select Failed
+                  </button>
+                </div>
+              </div>
+            )}
             
             {articles.length === 0 ? (
               <div className="text-center py-16">
