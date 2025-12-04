@@ -28,3 +28,4 @@ async def get_config() -> ConfigResponse:
         default_total_questions=settings.default_total_questions,
     )
 
+

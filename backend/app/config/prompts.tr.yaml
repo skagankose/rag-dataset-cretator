@@ -132,4 +132,3 @@ validation_prompt: |
   {chunks_content}
   
   Cevap parçalara göre doğru ve eksiksiz mi? "is_correct" (boolean) ve "reason" (kısa açıklama) içeren JSON döndürün.
-
