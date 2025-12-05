@@ -17,29 +17,21 @@ A simplified tool for generating Retrieval-Augmented Generation (RAG) datasets f
 - **Infrastructure**: Docker
 - **AI/LLM**: OpenAI & Gemini integration
 
-## Getting Started
+## Installation
 
 ### Prerequisites
 
 - Docker and Docker Compose
 - API Key for OpenAI or Google Gemini
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd rag_dataset_creator
-   ```
-
-2. **Environment Setup**
+### **Environment Setup**
    Copy the template configuration and update with your credentials:
    ```bash
    cp env.template .env
    ```
    Edit `.env` to add your `OPENAI_API_KEY` or other required variables.
 
-3. **Run the Application**
+### **Run the Application**
    Start the services using Docker Compose:
    ```bash
    docker-compose up --build
