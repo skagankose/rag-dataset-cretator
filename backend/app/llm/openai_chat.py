@@ -12,6 +12,15 @@ from ..core.logging import get_logger, log_llm_error
 
 logger = get_logger("llm.openai")
 
+# Models that require max_completion_tokens instead of max_tokens
+# These are newer models that use the updated API parameter
+MODELS_USING_MAX_COMPLETION_TOKENS = [
+    "gpt-4o", "gpt-4o-mini", "chatgpt-4o-latest",
+    "o1", "o1-mini", "o1-preview",
+    "o3", "o3-mini",
+    "gpt-5", "gpt-5-mini",  # GPT-5 series
+]
+
 
 class OpenAIChat:
     """OpenAI chat completion client."""
@@ -38,7 +47,7 @@ class OpenAIChat:
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        temperature: float = 0.1,
+        temperature: float = 1.0,
         max_tokens: int = 1000,
         response_format: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
@@ -56,8 +65,17 @@ class OpenAIChat:
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
-                "max_tokens": max_tokens,
             }
+            
+            # Use max_completion_tokens for newer models, max_tokens for older ones
+            # Check if any of the newer model identifiers are in the model name
+            uses_new_param = any(new_model in model for new_model in MODELS_USING_MAX_COMPLETION_TOKENS)
+            if uses_new_param:
+                kwargs["max_completion_tokens"] = max_tokens
+                logger.debug(f"Using max_completion_tokens={max_tokens} for model {model}")
+            else:
+                kwargs["max_tokens"] = max_tokens
+                logger.debug(f"Using max_tokens={max_tokens} for model {model}")
             
             # Add response format if specified (for JSON mode)
             if response_format:
@@ -109,7 +127,7 @@ class OpenAIChat:
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        temperature: float = 0.1,
+        temperature: float = 1.0,
         max_tokens: int = 1000,
     ) -> Dict[str, Any]:
         """Generate JSON-formatted completion."""

@@ -183,7 +183,7 @@ async def _validate_single_qa(
         # Call LLM with higher token limit to prevent truncation
         llm_response = await chat_provider.generate_json_completion(
             messages=messages,
-            temperature=0.1,
+            temperature=1.0,
             max_tokens=2048,
         )
         

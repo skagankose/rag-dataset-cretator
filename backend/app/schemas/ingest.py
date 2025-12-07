@@ -23,6 +23,8 @@ class IngestOptions(BaseModel):
                 self.llm_model = settings.openai_chat_model
             elif settings.llm_provider == "gemini":
                 self.llm_model = settings.gemini_chat_model
+            elif settings.llm_provider == "ollama":
+                self.llm_model = settings.ollama_chat_model
             else:
                 self.llm_model = "gpt-4o-mini"  # fallback
         return self

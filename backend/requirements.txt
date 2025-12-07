@@ -6,7 +6,7 @@ httpx==0.25.2
 beautifulsoup4==4.12.2
 lxml==4.9.3
 markdown==3.5.1
-openai==1.6.1
+openai>=1.54.0
 google-generativeai>=0.7.0
 python-multipart==0.0.6
 sse-starlette==1.8.2

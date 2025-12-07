@@ -29,6 +29,8 @@ class QuestionGenerator:
                 self.model = settings.openai_chat_model
             elif settings.llm_provider == "gemini":
                 self.model = settings.gemini_chat_model
+            elif settings.llm_provider == "ollama":
+                self.model = settings.ollama_chat_model
             else:
                 self.model = None
         else:
@@ -208,7 +210,7 @@ class QuestionGenerator:
             response = await chat_provider.generate_json_completion(
                 messages=messages,
                 model=self.model,
-                temperature=0.1,
+                temperature=1.0,
                 max_tokens=8192,  # Increased to allow for longer, more detailed responses
             )
             logger.debug(f"LLM response received: {response.get('usage', {})}")

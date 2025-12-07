@@ -192,12 +192,12 @@ class RecursiveTextSplitter(TextSplitter):
 
 
 class HeaderAwareTextSplitter(TextSplitter):
-    """Header-aware text splitter that creates one chunk per section.
+    """Header-aware text splitter that respects section boundaries and chunk_size.
     
     Each MediaWiki-style header (== Header ==) or Markdown header (## Header)
-    defines a section boundary. Each section becomes exactly one chunk,
-    regardless of its size. This ensures semantic coherence and prevents
-    mixing content from different sections.
+    defines a section boundary. Sections smaller than chunk_size become single chunks.
+    Larger sections are split into multiple chunks, all within the same header.
+    Content from different sections is never mixed.
     """
     
     def __init__(self, chunk_size: int = 1200, chunk_overlap: int = 200):
@@ -312,10 +312,10 @@ class HeaderAwareTextSplitter(TextSplitter):
         return sections
     
     def _split_section(self, section: Dict, start_chunk_index: int, metadata_sections: List[Dict]) -> List[ChunkInfo]:
-        """Split section into chunks - each section becomes exactly one chunk regardless of size.
+        """Split section into chunks respecting chunk_size.
         
-        This ensures that Wikipedia-style sections are not combined, maintaining
-        clear semantic boundaries. Each == Header == section becomes its own chunk.
+        If section content is smaller than chunk_size, create a single chunk.
+        If larger, split it into multiple chunks while staying within the same header.
         """
         content = section['content']
         header = section['header']
@@ -323,18 +323,50 @@ class HeaderAwareTextSplitter(TextSplitter):
         
         logger.debug(f"Processing section '{header}': {len(content)} chars")
         
-        # ALWAYS keep each section as a single chunk - never combine sections
-        # This is crucial for Wikipedia articles where each section should be independently retrievable
-        chunk = self._create_chunk_with_header(
-            start_chunk_index,
-            content,
-            section_start,
-            section['end_pos'],
-            header,
-            metadata_sections
-        )
-        logger.debug(f"Section '{header}' -> 1 chunk ({len(content)} chars)")
-        return [chunk]
+        # If section fits within chunk_size, keep as single chunk
+        if len(content) <= self.chunk_size:
+            chunk = self._create_chunk_with_header(
+                start_chunk_index,
+                content,
+                section_start,
+                section['end_pos'],
+                header,
+                metadata_sections
+            )
+            logger.debug(f"Section '{header}' -> 1 chunk ({len(content)} chars)")
+            return [chunk]
+        
+        # Section is larger than chunk_size, split it
+        chunks = []
+        current_pos = 0
+        chunk_idx = start_chunk_index
+        
+        while current_pos < len(content):
+            # Determine chunk end position
+            chunk_end = min(current_pos + self.chunk_size, len(content))
+            chunk_content = content[current_pos:chunk_end]
+            
+            chunk = self._create_chunk_with_header(
+                chunk_idx,
+                chunk_content,
+                section_start + current_pos,
+                section_start + chunk_end,
+                header,
+                metadata_sections
+            )
+            chunks.append(chunk)
+            chunk_idx += 1
+            
+            # If we've reached the end, stop
+            if chunk_end >= len(content):
+                break
+            
+            # Move to next chunk with overlap, ensuring forward progress
+            next_pos = chunk_end - self.chunk_overlap
+            current_pos = max(next_pos, current_pos + 1)
+        
+        logger.debug(f"Section '{header}' -> {len(chunks)} chunks")
+        return chunks
     
     def _create_chunk_with_header(
         self,

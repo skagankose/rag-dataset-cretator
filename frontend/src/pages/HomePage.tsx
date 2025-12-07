@@ -1239,69 +1239,32 @@ function HomePage() {
                 </div>
               )}
 
-              {/* File Upload Progress */}
+              {/* File Upload Processing */}
               {isUploading && (
                 <div className="bg-gray-100 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-medium text-black">
-                      Processing Files ({fileUploadProgress.completed}/{fileUploadProgress.total} completed)
-                    </span>
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <span className="text-xs text-gray-600">
-                        {fileUploadProgress.total > 0 ? Math.round((fileUploadProgress.completed / fileUploadProgress.total) * 100) : 0}%
+                      <ArrowPathIcon className="h-5 w-5 text-gray-900 animate-spin" />
+                      <span className="text-sm font-medium text-black">
+                        Processing files...
                       </span>
-                <button
-                        onClick={handleStopFileUpload}
-                        className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-                      >
-                        Stop Upload
-                </button>
-          </div>
-        </div>
-        
-                  {/* Submission Progress */}
-                  <div className="mb-2">
-                    <div className="flex justify-between text-xs text-gray-600 mb-1">
-                      <span>Submitted: {fileUploadProgress.submitted}/{fileUploadProgress.total}</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-1">
-                      <div 
-                        className="bg-gray-500 h-1 rounded-full transition-all duration-300"
-                        style={{ width: `${fileUploadProgress.total > 0 ? (fileUploadProgress.submitted / fileUploadProgress.total) * 100 : 0}%` }}
-                      />
-                    </div>
+                    <button
+                      onClick={handleStopFileUpload}
+                      className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                    >
+                      STOP
+                    </button>
                   </div>
-                  
-                  {/* Completion Progress */}
-                  <div className="mb-3">
-                    <div className="flex justify-between text-xs text-gray-600 mb-1">
-                      <span>Completed: {fileUploadProgress.completed}/{fileUploadProgress.total}</span>
-                        </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-gray-900 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${fileUploadProgress.total > 0 ? (fileUploadProgress.completed / fileUploadProgress.total) * 100 : 0}%` }}
-                      />
-                    </div>
-                      </div>
-                  
-                  {fileUploadProgress.currentFile && (
-                    <p className="text-xs text-gray-600 truncate">
-                      Status: {fileUploadProgress.currentFile}
-                    </p>
-                  )}
-          </div>
-        )}
+                </div>
+              )}
 
               <button
                 type="submit"
                 disabled={isUploading || !files || files.length === 0 || bulkProcessing}
                 className="w-full py-3 px-6 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
               >
-                {isUploading ? 
-                  `Processing... (${fileUploadProgress.completed}/${fileUploadProgress.total} completed)` : 
-                  'Upload and Process Files'
-                }
+                {isUploading ? 'Processing...' : 'Upload and Process Files'}
               </button>
             </form>
           </div>
@@ -1365,70 +1328,33 @@ function HomePage() {
                 />
               </div>
 
-                             {/* Bulk Processing Progress */}
-               {bulkProcessing && (
-                 <div className="bg-gray-100 rounded-xl p-4">
-                   <div className="flex items-center justify-between mb-3">
-                     <span className="text-sm font-medium text-black">
-                       Processing Articles ({bulkProgress.completed}/{bulkProgress.total} completed)
-                     </span>
-                     <div className="flex items-center space-x-3">
-                       <span className="text-xs text-gray-600">
-                         {bulkProgress.total > 0 ? Math.round((bulkProgress.completed / bulkProgress.total) * 100) : 0}%
-                       </span>
-                       <button
-                         onClick={handleStopBulkProcessing}
-                         className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-                       >
-                         Stop Processing
-                       </button>
-                     </div>
-                   </div>
-                   
-                   {/* Submission Progress */}
-                   <div className="mb-2">
-                     <div className="flex justify-between text-xs text-gray-600 mb-1">
-                       <span>Submitted: {bulkProgress.submitted}/{bulkProgress.total}</span>
-                     </div>
-                     <div className="w-full bg-gray-200 rounded-full h-1">
-                       <div 
-                         className="bg-gray-500 h-1 rounded-full transition-all duration-300"
-                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.submitted / bulkProgress.total) * 100 : 0}%` }}
-                       />
-                     </div>
-                   </div>
-                   
-                   {/* Completion Progress */}
-                   <div className="mb-3">
-                     <div className="flex justify-between text-xs text-gray-600 mb-1">
-                       <span>Completed: {bulkProgress.completed}/{bulkProgress.total}</span>
-                     </div>
-                     <div className="w-full bg-gray-200 rounded-full h-2">
-                       <div 
-                         className="bg-gray-900 h-2 rounded-full transition-all duration-300"
-                         style={{ width: `${bulkProgress.total > 0 ? (bulkProgress.completed / bulkProgress.total) * 100 : 0}%` }}
-                       />
-                     </div>
-                   </div>
-                   
-                   {bulkProgress.currentUrl && (
-                     <p className="text-xs text-gray-600 truncate">
-                       Status: {bulkProgress.currentUrl}
-                     </p>
-                   )}
-                 </div>
-               )}
+              {/* Bulk Processing */}
+              {bulkProcessing && (
+                <div className="bg-gray-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <ArrowPathIcon className="h-5 w-5 text-gray-900 animate-spin" />
+                      <span className="text-sm font-medium text-black">
+                        Processing articles...
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleStopBulkProcessing}
+                      className="px-3 py-1 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                    >
+                      STOP
+                    </button>
+                  </div>
+                </div>
+              )}
 
-                             <button
-                 onClick={handleBulkProcessing}
-                 disabled={bulkProcessing || isUploading || !bulkUrls.trim()}
-                 className="w-full py-3 px-6 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-               >
-                 {bulkProcessing ? 
-                   `Processing... (${bulkProgress.completed}/${bulkProgress.total} completed)` : 
-                   'Process All Articles'
-                 }
-               </button>
+              <button
+                onClick={handleBulkProcessing}
+                disabled={bulkProcessing || isUploading || !bulkUrls.trim()}
+                className="w-full py-3 px-6 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 text-white font-medium rounded-xl transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+              >
+                {bulkProcessing ? 'Processing...' : 'Process All Articles'}
+              </button>
             </div>
           </div>
         </div>

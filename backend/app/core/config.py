@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("./data"))
     
     # LLM Provider configuration
-    llm_provider: Literal["openai", "gemini"] = Field(default="openai")
+    llm_provider: Literal["openai", "gemini", "ollama"] = Field(default="openai")
     
     # OpenAI configuration
     openai_api_key: str = Field(default="", description="OpenAI API key")
@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     gemini_chat_model: str = Field(default="gemini-1.5-flash")
     gemini_timeout: int = Field(default=60)
     gemini_max_retries: int = Field(default=5)
+    
+    # Ollama configuration
+    ollama_api_base: str = Field(default="http://host.docker.internal:11434", description="Ollama API base URL")
+    ollama_chat_model: str = Field(default="llama3.2")
+    ollama_timeout: int = Field(default=600)
+    ollama_max_retries: int = Field(default=3)
     
     # Ingestion defaults
     default_chunk_size: int = Field(default=1200)

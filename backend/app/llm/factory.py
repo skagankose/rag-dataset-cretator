@@ -13,7 +13,7 @@ class ChatProvider(Protocol):
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        temperature: float = 0.1,
+        temperature: float = 1.0,
         max_tokens: int = 1000,
         response_format: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
@@ -24,7 +24,7 @@ class ChatProvider(Protocol):
         self,
         messages: List[Dict[str, str]],
         model: str = None,
-        temperature: float = 0.1,
+        temperature: float = 1.0,
         max_tokens: int = 1000,
     ) -> Dict[str, Any]:
         """Generate JSON-formatted completion."""
@@ -41,6 +41,9 @@ def get_chat_provider(provider: str = None):
     elif provider == "gemini":
         from .gemini_chat import GeminiChat
         return GeminiChat()
+    elif provider == "ollama":
+        from .ollama_chat import OllamaChat
+        return OllamaChat()
     else:
         raise LLMError(f"Unsupported LLM provider: {provider}", provider=provider)
 
