@@ -89,6 +89,7 @@ export interface HealthStatus {
 export interface ConfigResponse {
   prompt_language: string
   llm_provider: string
+  llm_model: string
   default_chunk_size: number
   default_chunk_overlap: number
   default_total_questions: number

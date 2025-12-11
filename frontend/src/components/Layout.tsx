@@ -15,6 +15,7 @@ function Layout({ children }: LayoutProps) {
   })
 
   const promptLanguage = config?.prompt_language?.toLowerCase() || 'en'
+  const llmModel = config?.llm_model || 'unknown'
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -44,13 +45,16 @@ function Layout({ children }: LayoutProps) {
               </Link>
             </div>
 
-            {/* Right side - Version and Language badges */}
+            {/* Right side - Version, Language, and Model badges */}
             <div className="flex items-center space-x-2">
               <span className="px-3 py-1 bg-gray-100 border border-gray-300 rounded-lg text-xs font-medium text-gray-700">
                 v1.0.0
               </span>
               <span className="px-3 py-1 border rounded-lg text-xs font-medium bg-gray-900 border-gray-900 text-white">
                 {promptLanguage.toUpperCase()}
+              </span>
+              <span className="px-3 py-1 border rounded-lg text-xs font-medium bg-gray-900 border-gray-900 text-white">
+                {llmModel}
               </span>
             </div>
           </div>
