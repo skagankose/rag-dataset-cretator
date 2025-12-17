@@ -1,8 +1,11 @@
 """File download API endpoints."""
+from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+import aiofiles
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from ..core.errors import NotFoundError
@@ -16,11 +19,12 @@ router = APIRouter()
 
 
 @router.get("/files/{article_id}/{filename}")
-async def download_file(article_id: str, filename: str) -> FileResponse:
+async def download_file(article_id: str, filename: str) -> Response:
     """Download article files."""
     try:
-        # Verify article exists
-        article_index.get_article(article_id)
+        # Verify article exists (and normalize article_id to canonical stored ID)
+        entry = article_index.get_article(article_id)
+        article_id = entry.id
         
         # Map filename to file path
         file_path = _get_file_path(article_id, filename)
@@ -34,17 +38,35 @@ async def download_file(article_id: str, filename: str) -> FileResponse:
         # Determine media type
         media_type = _get_media_type(filename)
         
-        return FileResponse(
-            path=file_path,
-            media_type=media_type,
-            filename=filename,
-        )
-        
+        # Try FileResponse first, but fallback to manual read if it fails
+        # This handles edge cases with Unicode paths on some filesystems where FileResponse/stat might fail
+        try:
+            return FileResponse(
+                path=file_path,
+                media_type=media_type,
+                filename=filename,
+            )
+        except Exception as e:
+            logger.warning(f"FileResponse failed for {file_path}, falling back to manual read: {e}")
+            
+            async with aiofiles.open(file_path, mode='rb') as f:
+                content = await f.read()
+            
+            return Response(
+                content=content,
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+            
     except NotFoundError:
         raise HTTPException(
             status_code=404,
             detail=f"Article not found: {article_id}"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to download file {filename} for {article_id}: {e}")
         raise HTTPException(
@@ -53,7 +75,7 @@ async def download_file(article_id: str, filename: str) -> FileResponse:
         ) from e
 
 
-def _get_file_path(article_id: str, filename: str) -> Path | None:
+def _get_file_path(article_id: str, filename: str) -> Optional[Path]:
     """Get the file path for a given filename."""
     
     # Map allowed filenames to their paths

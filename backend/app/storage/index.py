@@ -2,6 +2,7 @@
 
 import hashlib
 import time
+import unicodedata
 from datetime import datetime
 from typing import List, Optional
 
@@ -52,6 +53,17 @@ class ArticleIndex:
             entries = self._load_index()
             for entry in entries:
                 if entry.id == article_id:
+                    return entry
+            
+            # Fallback: Unicode normalization-insensitive match.
+            # This fixes cases where the same visible ID is represented using a different
+            # normalization form (e.g., Turkish dotted-i and combining marks) between
+            # browser URL decoding, JSON, and filesystem.
+            target_nfc = unicodedata.normalize("NFC", article_id)
+            target_casefold = target_nfc.casefold()
+            for entry in entries:
+                entry_nfc = unicodedata.normalize("NFC", entry.id)
+                if entry_nfc == target_nfc or entry_nfc.casefold() == target_casefold:
                     return entry
             raise NotFoundError(f"Article not found: {article_id}", "article")
     
@@ -142,14 +154,18 @@ def compute_url_checksum(url: str) -> str:
 
 
 def generate_article_id(url: str, title: str) -> str:
-    """Generate a unique article ID from URL and title."""
+    """Generate a unique article ID from URL and title.
+    
+    Only uses ASCII characters to avoid URL encoding issues and filesystem compatibility problems.
+    """
     # Combine URL and timestamp for uniqueness
     timestamp = str(int(time.time()))
     combined = f"{url}_{title}_{timestamp}"
     hash_part = hashlib.sha256(combined.encode()).hexdigest()[:8]
     
-    # Create readable ID
-    title_part = "".join(c for c in title if c.isalnum())[:20].lower()
+    # Create readable ID using only ASCII alphanumeric characters
+    # This avoids URL encoding issues with non-ASCII characters like Turkish characters
+    title_part = "".join(c for c in title if c.isascii() and c.isalnum())[:20].lower()
     if not title_part:
         title_part = "article"
     

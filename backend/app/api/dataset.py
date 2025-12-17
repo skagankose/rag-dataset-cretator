@@ -23,6 +23,7 @@ async def get_dataset(article_id: str) -> DatasetResponse:
     try:
         # Verify article exists
         entry = article_index.get_article(article_id)
+        article_id = entry.id
         
         # Read dataset file
         dataset_path = paths.dataset_file(article_id)

@@ -9,7 +9,7 @@ import {
   DocumentIcon,
 } from '@heroicons/react/24/outline'
 
-import { getArticle, getChunks, getFileUrl, downloadFile, getDataset } from '../lib/api'
+import { getArticle, getChunks, getFileUrl, downloadFile, getDataset, exportArticle } from '../lib/api'
 
 function ArticlePage() {
   const { articleId } = useParams<{ articleId: string }>()
@@ -67,118 +67,20 @@ function ArticlePage() {
 
   const downloadArticleAsJson = async () => {
     try {
-      // Fetch the article content and dataset in parallel
-      const [articleBlob, dataset] = await Promise.all([
-        downloadFile(article!.id, 'article.md'),
-        getDataset(article!.id)
-      ])
-      
-      const articleContent = await articleBlob.text()
-      
-      const comprehensiveData = {
-        article: {
-          id: article?.id,
-          title: article?.title,
-          url: article?.url,
-          lang: article?.lang,
-          created_at: article?.created_at,
-          stats: article?.stats,
-          options: article?.options,
-          content: articleContent
-        },
-        chunks: chunks,
-        questions: {
-          total_questions: dataset.total_questions,
-          items: dataset.items
-        },
-        metadata: {
-          export_date: new Date().toISOString(),
-          content_format: 'markdown',
-          total_chunks: chunks.length,
-          description: 'Complete article dataset including content, chunks, and generated questions'
-        }
-      }
-      
-      const dataStr = JSON.stringify(comprehensiveData, null, 2)
-      const dataBlob = new Blob([dataStr], { type: 'application/json' })
-      const url = URL.createObjectURL(dataBlob)
+      // Use the new export endpoint - backend handles everything
+      const exportBlob = await exportArticle(article!.id)
+      const url = URL.createObjectURL(exportBlob)
       
       const link = document.createElement('a')
       link.href = url
-      link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_complete.json`
+      link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_export.json`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
     } catch (error) {
-      console.error('Failed to download complete article data:', error)
-      // Fallback to article and chunks only if dataset fetch fails
-      try {
-        const articleBlob = await downloadFile(article!.id, 'article.md')
-        const articleContent = await articleBlob.text()
-        
-        const fallbackData = {
-          article: {
-            id: article?.id,
-            title: article?.title,
-            url: article?.url,
-            lang: article?.lang,
-            created_at: article?.created_at,
-            stats: article?.stats,
-            options: article?.options,
-            content: articleContent
-          },
-          chunks: chunks,
-          metadata: {
-            export_date: new Date().toISOString(),
-            content_format: 'markdown',
-            total_chunks: chunks.length,
-            error: 'Questions could not be fetched'
-          }
-        }
-        
-        const dataStr = JSON.stringify(fallbackData, null, 2)
-        const dataBlob = new Blob([dataStr], { type: 'application/json' })
-        const url = URL.createObjectURL(dataBlob)
-        
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_partial.json`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-      } catch (fallbackError) {
-        console.error('Fallback download also failed:', fallbackError)
-        // Final fallback with metadata only
-        const metadataOnlyData = {
-          article: {
-            id: article?.id,
-            title: article?.title,
-            url: article?.url,
-            lang: article?.lang,
-            created_at: article?.created_at,
-            stats: article?.stats,
-            options: article?.options
-          },
-          metadata: {
-            export_date: new Date().toISOString(),
-            error: 'Content and questions could not be fetched'
-          }
-        }
-        
-        const dataStr = JSON.stringify(metadataOnlyData, null, 2)
-        const dataBlob = new Blob([dataStr], { type: 'application/json' })
-        const url = URL.createObjectURL(dataBlob)
-        
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `${article?.title?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'article'}_metadata.json`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-      }
+      console.error('Failed to export article:', error)
+      alert(`Failed to export article: ${error.message}`)
     }
   }
 

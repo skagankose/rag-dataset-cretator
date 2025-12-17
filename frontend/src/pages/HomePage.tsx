@@ -22,7 +22,7 @@ import {
   ClipboardDocumentCheckIcon,
 } from '@heroicons/react/24/outline'
 
-import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles, getConfig, validateArticle } from '../lib/api'
+import { startIngestion, getArticles, deleteArticle, downloadFile, getDataset, getChunks, uploadFiles, getConfig, validateArticle, exportArticle, exportAllArticles } from '../lib/api'
 import type { IngestOptions } from '../types/api'
 
 function HomePage() {
@@ -247,6 +247,48 @@ function HomePage() {
     }
   }
 
+  const handleDownloadAllFromDatabase = async () => {
+    if (articles.length === 0) {
+      toast.error('No articles in the database to download')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Download all ${articles.length} articles from the database?\n\nThis will create a ZIP file with complete exports of every article including content, chunks, and questions.`
+    )
+    
+    if (!confirmed) return
+
+    try {
+      toast.loading(`Downloading all ${articles.length} articles...`)
+      
+      // Call the backend endpoint that exports all articles as a ZIP
+      const zipBlob = await exportAllArticles()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(zipBlob)
+      const link = document.createElement('a')
+      link.href = url
+      
+      // The filename will be set by the backend in Content-Disposition header
+      // but we'll provide a default just in case
+      const currentDate = new Date().toISOString().split('T')[0]
+      link.download = `all_articles_export_${currentDate}.zip`
+      
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      toast.dismiss()
+      toast.success(`Successfully downloaded all ${articles.length} articles!`)
+    } catch (error) {
+      toast.dismiss()
+      toast.error(`Failed to download articles: ${error.message}`)
+      console.error('Download all error:', error)
+    }
+  }
+
   const handleDownloadAllArticles = async () => {
     if (selectedArticles.length === 0) {
       toast.error('No articles selected for download')
@@ -258,110 +300,55 @@ function HomePage() {
     try {
       toast.loading(`Downloading ${selectedArticles.length} complete article datasets...`)
       
-      // Download selected articles with complete data in parallel
+      // Use the new export endpoint - backend handles everything in one call
       const downloadPromises = selectedArticlesList.map(async (article) => {
         try {
-          // Fetch article content, chunks, and dataset in parallel
-          const [articleBlob, chunks, dataset] = await Promise.all([
-            downloadFile(article.id, 'article.md'),
-            getChunks(article.id),
-            getDataset(article.id)
-          ])
+          // Call the export endpoint which returns complete article data
+          const exportBlob = await exportArticle(article.id)
+          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
           
-          const articleContent = await articleBlob.text()
+          return {
+            blob: exportBlob,
+            filename: `${safeTitle}_export.json`,
+            title: article.title,
+            success: true
+          }
+        } catch (error) {
+          console.error(`Failed to export article ${article.title}:`, error)
           
-          const comprehensiveData = {
+          // Return a minimal error JSON
+          const errorData = {
             article: {
               id: article.id,
               title: article.title,
               url: article.url,
               lang: article.lang,
-              created_at: article.created_at,
-              content: articleContent
-            },
-            chunks: chunks,
-            questions: {
-              total_questions: dataset.total_questions,
-              items: dataset.items
+              created_at: article.created_at
             },
             metadata: {
               export_date: new Date().toISOString(),
-              content_format: 'markdown',
-              total_chunks: chunks.length,
-              description: 'Complete article dataset including content, chunks, and generated questions'
+              error: `Export failed: ${error.message}`
             }
           }
           
-          const dataStr = JSON.stringify(comprehensiveData, null, 2)
+          const dataStr = JSON.stringify(errorData, null, 2)
           const dataBlob = new Blob([dataStr], { type: 'application/json' })
           const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
           
           return {
             blob: dataBlob,
-            filename: `${safeTitle}_complete.json`,
-            title: article.title
-          }
-        } catch (error) {
-          // Fallback to article content only if dataset/chunks fetch fails
-          try {
-            const articleBlob = await downloadFile(article.id, 'article.md')
-            const articleContent = await articleBlob.text()
-            
-            const fallbackData = {
-              article: {
-                id: article.id,
-                title: article.title,
-                url: article.url,
-                lang: article.lang,
-                created_at: article.created_at,
-                content: articleContent
-              },
-              metadata: {
-                export_date: new Date().toISOString(),
-                content_format: 'markdown',
-                error: 'Chunks and questions could not be fetched'
-              }
-            }
-            
-            const dataStr = JSON.stringify(fallbackData, null, 2)
-            const dataBlob = new Blob([dataStr], { type: 'application/json' })
-            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-            
-            return {
-              blob: dataBlob,
-              filename: `${safeTitle}_partial.json`,
-              title: article.title
-            }
-          } catch (fallbackError) {
-            // Final fallback with metadata only
-            const metadataOnlyData = {
-              article: {
-                id: article.id,
-                title: article.title,
-                url: article.url,
-                lang: article.lang,
-                created_at: article.created_at
-              },
-              metadata: {
-                export_date: new Date().toISOString(),
-                error: 'Content and questions could not be fetched'
-              }
-            }
-            
-            const dataStr = JSON.stringify(metadataOnlyData, null, 2)
-            const dataBlob = new Blob([dataStr], { type: 'application/json' })
-            const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-            
-            return {
-              blob: dataBlob,
-              filename: `${safeTitle}_metadata.json`,
-              title: article.title
-            }
+            filename: `${safeTitle}_error.json`,
+            title: article.title,
+            success: false
           }
         }
       })
 
       const downloads = await Promise.all(downloadPromises)
+      
+      // Count successes and failures
+      const successCount = downloads.filter(d => d.success).length
+      const failureCount = downloads.filter(d => !d.success).length
       
       // Create ZIP file containing all JSON files
       const zip = new JSZip()
@@ -390,7 +377,15 @@ function HomePage() {
       window.URL.revokeObjectURL(url)
       
       toast.dismiss()
-      toast.success(`Successfully downloaded ZIP file with ${downloads.length} complete datasets!`)
+      
+      if (failureCount > 0) {
+        toast.success(
+          `Downloaded ZIP with ${downloads.length} files (${successCount} successful, ${failureCount} failed)`,
+          { duration: 5000 }
+        )
+      } else {
+        toast.success(`Successfully downloaded ZIP file with ${downloads.length} complete datasets!`)
+      }
     } catch (error) {
       toast.dismiss()
       toast.error(`Failed to download articles: ${error.message}`)
@@ -1370,6 +1365,15 @@ function HomePage() {
                 </h2>
               </div>
               <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleDownloadAllFromDatabase}
+                  disabled={articles.length === 0}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 focus:ring-offset-white"
+                  title={`Download all ${articles.length} articles from database`}
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  <span>Download All ({articles.length})</span>
+                </button>
                 <button
                   onClick={handleValidateSelectedArticles}
                   disabled={selectedArticles.length === 0 || isValidating}

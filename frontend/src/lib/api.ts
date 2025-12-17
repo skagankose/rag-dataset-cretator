@@ -82,17 +82,39 @@ export async function getArticles(): Promise<ArticleListItem[]> {
 }
 
 export async function getArticle(articleId: string): Promise<ArticleMetadata> {
-  const response = await fetch(`${API_BASE_URL}/articles/${articleId}`)
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}`)
   return handleResponse<ArticleMetadata>(response)
 }
 
 export async function getChunks(articleId: string): Promise<ChunkListItem[]> {
-  const response = await fetch(`${API_BASE_URL}/articles/${articleId}/chunks`)
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/chunks`)
   return handleResponse<ChunkListItem[]>(response)
 }
 
+export async function exportArticle(articleId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/export`)
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to export article: ${response.status} ${response.statusText}`,
+      response.status
+    )
+  }
+  return response.blob()
+}
+
+export async function exportAllArticles(): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/articles/export/all`)
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to export all articles: ${response.status} ${response.statusText}`,
+      response.status
+    )
+  }
+  return response.blob()
+}
+
 export async function deleteArticle(articleId: string): Promise<{ message: string; article_id: string }> {
-  const response = await fetch(`${API_BASE_URL}/articles/${articleId}`, {
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}`, {
     method: 'DELETE',
   })
   return handleResponse<{ message: string; article_id: string }>(response)
@@ -100,12 +122,12 @@ export async function deleteArticle(articleId: string): Promise<{ message: strin
 
 // Dataset API
 export async function getDataset(articleId: string): Promise<DatasetResponse> {
-  const response = await fetch(`${API_BASE_URL}/dataset/${articleId}`)
+  const response = await fetch(`${API_BASE_URL}/dataset/${encodeURIComponent(articleId)}`)
   return handleResponse<DatasetResponse>(response)
 }
 
 export async function downloadDatasetJson(articleId: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/dataset/${articleId}/download`)
+  const response = await fetch(`${API_BASE_URL}/dataset/${encodeURIComponent(articleId)}/download`)
   if (!response.ok) {
     throw new ApiError(
       `Failed to download dataset: ${response.status} ${response.statusText}`,
@@ -117,7 +139,7 @@ export async function downloadDatasetJson(articleId: string): Promise<Blob> {
 
 // Files API
 export async function downloadFile(articleId: string, filename: string): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/files/${articleId}/${filename}`)
+  const response = await fetch(`${API_BASE_URL}/files/${encodeURIComponent(articleId)}/${filename}`)
   if (!response.ok) {
     throw new ApiError(
       `Failed to download file: ${response.status} ${response.statusText}`,
@@ -129,7 +151,7 @@ export async function downloadFile(articleId: string, filename: string): Promise
 
 // Legacy function - kept for compatibility but not used in current code
 export async function getFileUrl(articleId: string, filename: string): Promise<string> {
-  return `${API_BASE_URL}/files/${articleId}/${filename}`
+  return `${API_BASE_URL}/files/${encodeURIComponent(articleId)}/${filename}`
 }
 
 // Server-Sent Events for ingestion progress
@@ -145,7 +167,7 @@ export async function getConfig(): Promise<ConfigResponse> {
 
 // Validation API
 export async function validateArticle(articleId: string): Promise<ValidationResponse> {
-  const response = await fetch(`${API_BASE_URL}/validate/${articleId}`, {
+  const response = await fetch(`${API_BASE_URL}/validate/${encodeURIComponent(articleId)}`, {
     method: 'POST',
   })
   return handleResponse<ValidationResponse>(response)
