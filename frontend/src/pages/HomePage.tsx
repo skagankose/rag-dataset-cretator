@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import toast from 'react-hot-toast'
 import JSZip from 'jszip'
 import { 
   DocumentTextIcon,
@@ -75,6 +74,17 @@ function HomePage() {
     queryFn: getArticles,
   })
 
+  // Sync selectedArticles with available articles to remove stale IDs
+  useEffect(() => {
+    if (selectedArticles.length > 0) {
+      const articleIds = new Set(articles.map(a => a.id))
+      setSelectedArticles(prev => {
+        const validSelection = prev.filter(id => articleIds.has(id))
+        return validSelection.length === prev.length ? prev : validSelection
+      })
+    }
+  }, [articles, selectedArticles.length]) // Only run when articles change or selection length changes to avoid loops
+
   // Fetch configuration to get prompt language for random articles
   const { data: config } = useQuery({
     queryKey: ['config'],
@@ -88,6 +98,9 @@ function HomePage() {
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
   const currentArticles = articles.slice(startIndex, endIndex)
+
+  // Optimize selection lookup
+  const selectedSet = new Set(selectedArticles)
 
   const goToPage = (page: number) => {
     setCurrentPage(page)
@@ -113,11 +126,11 @@ function HomePage() {
   const deleteMutation = useMutation({
     mutationFn: deleteArticle,
     onSuccess: () => {
-      toast.success('Article deleted successfully!')
+      console.log('Article deleted successfully!')
       refetchArticles()
     },
     onError: (error) => {
-      toast.error(`Failed to delete article: ${error.message}`)
+      console.error(`Failed to delete article: ${error.message}`)
     },
   })
 
@@ -133,7 +146,7 @@ function HomePage() {
 
   const handleDownloadArticle = async (articleId: string, articleTitle: string) => {
     try {
-      toast.loading('Downloading article...')
+      console.log('Downloading article...')
       const blob = await downloadFile(articleId, 'article.md')
       
       // Create download link
@@ -151,11 +164,8 @@ function HomePage() {
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
-      toast.dismiss()
-      toast.success('Article downloaded successfully!')
+      console.log('Article downloaded successfully!')
     } catch (error) {
-      toast.dismiss()
-      toast.error(`Failed to download article: ${error.message}`)
       console.error('Download error:', error)
     }
   }
@@ -168,17 +178,9 @@ function HomePage() {
     )
   }
 
-  const handleSelectAll = () => {
-    if (selectedArticles.length === articles.length) {
-      setSelectedArticles([])
-    } else {
-      setSelectedArticles(articles.map(article => article.id))
-    }
-  }
-
   const handleSelectPage = () => {
     const currentPageIds = currentArticles.map(article => article.id)
-    const allCurrentPageSelected = currentPageIds.every(id => selectedArticles.includes(id))
+    const allCurrentPageSelected = currentPageIds.every(id => selectedSet.has(id))
     
     if (allCurrentPageSelected) {
       // Deselect all articles on current page
@@ -209,12 +211,12 @@ function HomePage() {
 
   const handleDeleteSelectedArticles = async () => {
     if (selectedArticles.length === 0) {
-      toast.error('No articles selected for deletion')
+      console.warn('No articles selected for deletion')
       return
     }
 
     const selectedTitles = articles
-      .filter(article => selectedArticles.includes(article.id))
+      .filter(article => selectedSet.has(article.id))
       .map(article => article.title)
       .join(', ')
 
@@ -224,32 +226,218 @@ function HomePage() {
     
     if (!confirmed) return
 
-    try {
-      toast.loading(`Deleting ${selectedArticles.length} articles...`)
-      
-      // Delete all selected articles in parallel
-      const deletePromises = selectedArticles.map(articleId => 
-        deleteMutation.mutateAsync(articleId)
-      )
+    const totalArticles = selectedArticles.length
+    let deletedCount = 0
+    let failedCount = 0
 
-      await Promise.all(deletePromises)
+    try {
+      console.log(`Starting deletion of ${totalArticles} selected articles...`)
       
-      // Clear selection after successful deletion
+      // Process deletions in batches to avoid overwhelming the system
+      const BATCH_SIZE = 5
+      
+      for (let i = 0; i < selectedArticles.length; i += BATCH_SIZE) {
+        const batch = selectedArticles.slice(i, i + BATCH_SIZE)
+        console.log(`Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalArticles / BATCH_SIZE)} (${batch.length} articles)...`)
+        
+        // Delete batch in parallel
+        const batchPromises = batch.map(async (articleId) => {
+          try {
+            await deleteMutation.mutateAsync(articleId)
+            deletedCount++
+            return { success: true, articleId }
+          } catch (error) {
+            failedCount++
+            console.error(`Failed to delete article ${articleId}:`, error)
+            return { success: false, articleId, error }
+          }
+        })
+        
+        await Promise.all(batchPromises)
+        
+        // Short delay between batches to avoid overwhelming the system
+        if (i + BATCH_SIZE < selectedArticles.length) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      
+      // Clear selection after deletion
       setSelectedArticles([])
       
-      toast.dismiss()
-      toast.success(`Successfully deleted ${selectedArticles.length} articles!`)
+      console.log(`Deletion complete: ${deletedCount} succeeded, ${failedCount} failed out of ${totalArticles} total`)
+      
+      // Refetch articles to update the list
       refetchArticles()
     } catch (error) {
-      toast.dismiss()
-      toast.error(`Failed to delete some articles: ${error.message}`)
       console.error('Bulk delete error:', error)
+      console.log(`Deleted ${deletedCount} articles before error occurred`)
+      refetchArticles()
+    }
+  }
+
+  const handleDeleteAllArticles = async () => {
+    if (articles.length === 0) {
+      console.warn('No articles to delete')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ALL ${articles.length} articles?\n\nThis will permanently remove all articles and related files including chunks and datasets.\n\nThis action cannot be undone!`
+    )
+    
+    if (!confirmed) return
+
+    const totalArticles = articles.length
+    let deletedCount = 0
+    let failedCount = 0
+
+    try {
+      console.log(`Starting deletion of ${totalArticles} articles...`)
+      
+      // Process deletions in batches to avoid overwhelming the system
+      const BATCH_SIZE = 5
+      const articleIds = articles.map(a => a.id)
+      
+      for (let i = 0; i < articleIds.length; i += BATCH_SIZE) {
+        const batch = articleIds.slice(i, i + BATCH_SIZE)
+        console.log(`Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalArticles / BATCH_SIZE)} (${batch.length} articles)...`)
+        
+        // Delete batch in parallel
+        const batchPromises = batch.map(async (articleId) => {
+          try {
+            await deleteMutation.mutateAsync(articleId)
+            deletedCount++
+            return { success: true, articleId }
+          } catch (error) {
+            failedCount++
+            console.error(`Failed to delete article ${articleId}:`, error)
+            return { success: false, articleId, error }
+          }
+        })
+        
+        await Promise.all(batchPromises)
+        
+        // Short delay between batches to avoid overwhelming the system
+        if (i + BATCH_SIZE < articleIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      
+      // Clear selection after deletion
+      setSelectedArticles([])
+      
+      console.log(`Deletion complete: ${deletedCount} succeeded, ${failedCount} failed out of ${totalArticles} total`)
+      
+      // Refetch articles to update the list
+      refetchArticles()
+    } catch (error) {
+      console.error('Bulk delete all error:', error)
+      console.log(`Deleted ${deletedCount} articles before error occurred`)
+      refetchArticles()
+    }
+  }
+
+  const handleValidateAllArticles = async () => {
+    if (articles.length === 0) {
+      console.warn('No articles to validate')
+      return
+    }
+
+    setIsValidating(true)
+    
+    const totalArticles = articles.length
+    let validatedCount = 0
+    let correctCount = 0
+    let incorrectCount = 0
+    let errorCount = 0
+    
+    console.log(`Starting validation of ${totalArticles} article(s)...`)
+
+    try {
+      // Process validations in batches to avoid overwhelming the system
+      const BATCH_SIZE = 3 // Smaller batch for validation as it's more intensive
+      const articleList = [...articles]
+      
+      for (let i = 0; i < articleList.length; i += BATCH_SIZE) {
+        const batch = articleList.slice(i, i + BATCH_SIZE)
+        console.log(`Validating batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalArticles / BATCH_SIZE)} (${batch.length} articles)...`)
+        
+        // Set batch articles to validating state
+        const validatingStatus: Record<string, 'validating'> = {}
+        batch.forEach(article => {
+          validatingStatus[article.id] = 'validating'
+        })
+        setValidationStatus(prev => ({ ...prev, ...validatingStatus }))
+        
+        // Validate batch in parallel
+        const batchPromises = batch.map(async (article) => {
+          try {
+            const result = await validateArticle(article.id)
+            validatedCount++
+            if (result.is_correct) {
+              correctCount++
+            } else {
+              incorrectCount++
+            }
+            return { 
+              articleId: article.id, 
+              isCorrect: result.is_correct,
+              reason: result.reason,
+              error: null
+            }
+          } catch (error) {
+            validatedCount++
+            errorCount++
+            console.error(`Validation failed for article ${article.id}:`, error)
+            return { 
+              articleId: article.id, 
+              isCorrect: false, 
+              reason: '',
+              error: error.message 
+            }
+          }
+        })
+
+        const batchResults = await Promise.all(batchPromises)
+        
+        // Update validation status for batch
+        const batchStatus: Record<string, 'correct' | 'incorrect' | null> = {}
+        batchResults.forEach(result => {
+          if (result.error) {
+            batchStatus[result.articleId] = null
+          } else {
+            batchStatus[result.articleId] = result.isCorrect ? 'correct' : 'incorrect'
+          }
+        })
+        setValidationStatus(prev => ({ ...prev, ...batchStatus }))
+        
+        // Short delay between batches to avoid overwhelming the system
+        if (i + BATCH_SIZE < articleList.length) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+      }
+      
+      // Log final results
+      console.log(`Validation complete: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} errors out of ${totalArticles} total`)
+      
+      if (errorCount > 0) {
+        console.error(`Validation completed with errors: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} failed`)
+      } else if (incorrectCount > 0) {
+        console.warn(`Validation completed: ${correctCount} correct, ${incorrectCount} incorrect`)
+      } else {
+        console.log(`All ${correctCount} article(s) validated successfully!`)
+      }
+    } catch (error) {
+      console.error('Validation error:', error)
+      console.log(`Validated ${validatedCount} articles before error occurred`)
+    } finally {
+      setIsValidating(false)
     }
   }
 
   const handleDownloadAllFromDatabase = async () => {
     if (articles.length === 0) {
-      toast.error('No articles in the database to download')
+      console.warn('No articles in the database to download')
       return
     }
 
@@ -260,7 +448,7 @@ function HomePage() {
     if (!confirmed) return
 
     try {
-      toast.loading(`Downloading all ${articles.length} articles...`)
+      console.log(`Downloading all ${articles.length} articles...`)
       
       // Call the backend endpoint that exports all articles as a ZIP
       const zipBlob = await exportAllArticles()
@@ -280,180 +468,102 @@ function HomePage() {
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
-      toast.dismiss()
-      toast.success(`Successfully downloaded all ${articles.length} articles!`)
+      console.log(`Successfully downloaded all ${articles.length} articles!`)
     } catch (error) {
-      toast.dismiss()
-      toast.error(`Failed to download articles: ${error.message}`)
       console.error('Download all error:', error)
-    }
-  }
-
-  const handleDownloadAllArticles = async () => {
-    if (selectedArticles.length === 0) {
-      toast.error('No articles selected for download')
-      return
-    }
-
-    const selectedArticlesList = articles.filter(article => selectedArticles.includes(article.id))
-
-    try {
-      toast.loading(`Downloading ${selectedArticles.length} complete article datasets...`)
-      
-      // Use the new export endpoint - backend handles everything in one call
-      const downloadPromises = selectedArticlesList.map(async (article) => {
-        try {
-          // Call the export endpoint which returns complete article data
-          const exportBlob = await exportArticle(article.id)
-          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-          
-          return {
-            blob: exportBlob,
-            filename: `${safeTitle}_export.json`,
-            title: article.title,
-            success: true
-          }
-        } catch (error) {
-          console.error(`Failed to export article ${article.title}:`, error)
-          
-          // Return a minimal error JSON
-          const errorData = {
-            article: {
-              id: article.id,
-              title: article.title,
-              url: article.url,
-              lang: article.lang,
-              created_at: article.created_at
-            },
-            metadata: {
-              export_date: new Date().toISOString(),
-              error: `Export failed: ${error.message}`
-            }
-          }
-          
-          const dataStr = JSON.stringify(errorData, null, 2)
-          const dataBlob = new Blob([dataStr], { type: 'application/json' })
-          const safeTitle = article.title.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
-          
-          return {
-            blob: dataBlob,
-            filename: `${safeTitle}_error.json`,
-            title: article.title,
-            success: false
-          }
-        }
-      })
-
-      const downloads = await Promise.all(downloadPromises)
-      
-      // Count successes and failures
-      const successCount = downloads.filter(d => d.success).length
-      const failureCount = downloads.filter(d => !d.success).length
-      
-      // Create ZIP file containing all JSON files
-      const zip = new JSZip()
-      
-      // Add each JSON file to the ZIP
-      downloads.forEach(({ blob, filename }) => {
-        zip.file(filename, blob)
-      })
-      
-      // Generate ZIP file
-      const zipBlob = await zip.generateAsync({ type: 'blob' })
-      
-      // Create safe filename for the ZIP
-      const currentDate = new Date().toISOString().split('T')[0]
-      const zipFilename = `articles_export_${currentDate}_${downloads.length}_files.zip`
-      
-      // Download ZIP file
-      const url = window.URL.createObjectURL(zipBlob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = zipFilename
-      
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      
-      toast.dismiss()
-      
-      if (failureCount > 0) {
-        toast.success(
-          `Downloaded ZIP with ${downloads.length} files (${successCount} successful, ${failureCount} failed)`,
-          { duration: 5000 }
-        )
-      } else {
-        toast.success(`Successfully downloaded ZIP file with ${downloads.length} complete datasets!`)
-      }
-    } catch (error) {
-      toast.dismiss()
-      toast.error(`Failed to download articles: ${error.message}`)
-      console.error('Bulk download error:', error)
     }
   }
 
   const handleValidateSelectedArticles = async () => {
     if (selectedArticles.length === 0) {
-      toast.error('No articles selected for validation')
+      console.warn('No articles selected for validation')
       return
     }
 
     setIsValidating(true)
-    const toastId = toast.loading(`Validating ${selectedArticles.length} article(s)...`)
+    
+    const totalArticles = selectedArticles.length
+    let validatedCount = 0
+    let correctCount = 0
+    let incorrectCount = 0
+    let errorCount = 0
+    
+    console.log(`Starting validation of ${totalArticles} selected article(s)...`)
 
     try {
-      // Validate all selected articles in parallel
-      const validationPromises = selectedArticles.map(async (articleId) => {
-        // Mark as validating
-        setValidationStatus(prev => ({ ...prev, [articleId]: 'validating' }))
+      // Process validations in batches to avoid overwhelming the system
+      const BATCH_SIZE = 3 // Smaller batch for validation as it's more intensive
+      
+      for (let i = 0; i < selectedArticles.length; i += BATCH_SIZE) {
+        const batch = selectedArticles.slice(i, i + BATCH_SIZE)
+        console.log(`Validating batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalArticles / BATCH_SIZE)} (${batch.length} articles)...`)
         
-        try {
-          const result = await validateArticle(articleId)
-          
-          // Update validation status
-          setValidationStatus(prev => ({ 
-            ...prev, 
-            [articleId]: result.is_correct ? 'correct' : 'incorrect' 
-          }))
-          
-          return { articleId, result }
-        } catch (error) {
-          console.error(`Failed to validate article ${articleId}:`, error)
-          setValidationStatus(prev => ({ ...prev, [articleId]: null }))
-          return { articleId, error }
-        }
-      })
+        // Set batch articles to validating state
+        const validatingStatus: Record<string, 'validating'> = {}
+        batch.forEach(articleId => {
+          validatingStatus[articleId] = 'validating'
+        })
+        setValidationStatus(prev => ({ ...prev, ...validatingStatus }))
+        
+        // Validate batch in parallel
+        const batchPromises = batch.map(async (articleId) => {
+          try {
+            const result = await validateArticle(articleId)
+            validatedCount++
+            if (result.is_correct) {
+              correctCount++
+            } else {
+              incorrectCount++
+            }
+            return { 
+              articleId, 
+              result,
+              error: null
+            }
+          } catch (error) {
+            validatedCount++
+            errorCount++
+            console.error(`Failed to validate article ${articleId}:`, error)
+            return { 
+              articleId, 
+              result: null, 
+              error
+            }
+          }
+        })
 
-      const results = await Promise.all(validationPromises)
+        const batchResults = await Promise.all(batchPromises)
+        
+        // Update validation status for batch
+        const batchStatus: Record<string, 'correct' | 'incorrect' | null> = {}
+        batchResults.forEach(result => {
+          if (result.error || !result.result) {
+            batchStatus[result.articleId] = null
+          } else {
+            batchStatus[result.articleId] = result.result.is_correct ? 'correct' : 'incorrect'
+          }
+        })
+        setValidationStatus(prev => ({ ...prev, ...batchStatus }))
+        
+        // Short delay between batches to avoid overwhelming the system
+        if (i + BATCH_SIZE < selectedArticles.length) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+        }
+      }
       
-      // Count results
-      const correctCount = results.filter(r => r.result?.is_correct).length
-      const incorrectCount = results.filter(r => r.result && !r.result.is_correct).length
-      const errorCount = results.filter(r => r.error).length
-      
-      toast.dismiss(toastId)
+      // Log final results
+      console.log(`Validation complete: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} errors out of ${totalArticles} total`)
       
       if (errorCount > 0) {
-        toast.error(
-          `Validation completed with errors: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} failed`,
-          { duration: 6000 }
-        )
+        console.error(`Validation completed with errors: ${correctCount} correct, ${incorrectCount} incorrect, ${errorCount} failed`)
       } else if (incorrectCount > 0) {
-        toast.error(
-          `Validation completed: ${correctCount} correct, ${incorrectCount} incorrect`,
-          { duration: 6000 }
-        )
+        console.warn(`Validation completed: ${correctCount} correct, ${incorrectCount} incorrect`)
       } else {
-        toast.success(
-          `All ${correctCount} article(s) validated successfully!`,
-          { duration: 4000 }
-        )
+        console.log(`All ${correctCount} article(s) validated successfully!`)
       }
     } catch (error) {
-      toast.dismiss(toastId)
-      toast.error(`Validation failed: ${error.message}`)
       console.error('Validation error:', error)
+      console.log(`Validated ${validatedCount} articles before error occurred`)
     } finally {
       setIsValidating(false)
     }
@@ -477,12 +587,12 @@ function HomePage() {
 
   const handleBulkProcessing = async () => {
     if (bulkProcessing) {
-      toast.error('Bulk processing is already in progress')
+      console.warn('Bulk processing is already in progress')
       return
     }
 
     if (!bulkUrls.trim()) {
-      toast.error('Please enter Wikipedia URLs')
+      console.warn('Please enter Wikipedia URLs')
       return
     }
 
@@ -493,7 +603,7 @@ function HomePage() {
       .filter(url => url.length > 0)
 
     if (urls.length === 0) {
-      toast.error('Please enter valid Wikipedia URLs')
+      console.warn('Please enter valid Wikipedia URLs')
       return
     }
 
@@ -509,7 +619,7 @@ function HomePage() {
 
     if (invalidUrls.length > 0) {
       const firstInvalid = invalidUrls[0]
-      toast.error(`Invalid Wikipedia URL found: "${firstInvalid}". Please ensure all URLs are valid Wikipedia links.`, { duration: 6000 })
+      console.error(`Invalid Wikipedia URL found: "${firstInvalid}". Please ensure all URLs are valid Wikipedia links.`)
       return
     }
 
@@ -532,7 +642,7 @@ function HomePage() {
       for (let i = 0; i < urls.length; i++) {
         // Check if user wants to stop processing
         if (shouldStopBulkProcessing) {
-          toast.info('Bulk processing stopped by user')
+          console.info('Bulk processing stopped by user')
           break
         }
 
@@ -757,16 +867,13 @@ function HomePage() {
         // Provide detailed status message
         const totalErrors = errorCount + actualFailures
         if (totalErrors > 0) {
-          toast.success(
-            `Bulk processing completed! ${actualSuccesses || successCount} articles processed successfully. ${totalErrors} failed (may be non-existent articles or network errors). Refreshing articles list...`,
-            { duration: 6000 }
-          )
+          console.log(`Bulk processing completed! ${actualSuccesses || successCount} articles processed successfully. ${totalErrors} failed (may be non-existent articles or network errors). Refreshing articles list...`)
         } else {
-          toast.success(`Successfully processed all ${actualSuccesses || successCount} articles! Refreshing articles list...`)
+          console.log(`Successfully processed all ${actualSuccesses || successCount} articles! Refreshing articles list...`)
         }
       } else {
         const totalAttempted = urls.length
-        toast.error(`Failed to process any of the ${totalAttempted} articles. Please check that the Wikipedia URLs exist and are valid.`, { duration: 6000 })
+        console.error(`Failed to process any of the ${totalAttempted} articles. Please check that the Wikipedia URLs exist and are valid.`)
       }
     } catch (error) {
       setBulkProcessing(false)
@@ -777,20 +884,19 @@ function HomePage() {
         currentUrl: '',
         processingArticles: new Map()
       })
-      toast.error('Bulk processing failed')
       console.error('Bulk processing error:', error)
     }
   }
 
   const fetchRandomBulkArticles = async () => {
     if (randomArticleCount < 1 || randomArticleCount > 1000) {
-      toast.error('Please enter a number between 1 and 1000')
+      console.warn('Please enter a number between 1 and 1000')
       return
     }
 
     setIsLoadingRandomBulk(true)
     try {
-      toast.loading(`Fetching ${randomArticleCount} random articles...`)
+      console.log(`Fetching ${randomArticleCount} random articles...`)
       
       // Use Wikipedia's random page API with appropriate language
       const lang = promptLanguage === 'tr' ? 'tr' : 'en'
@@ -810,11 +916,8 @@ function HomePage() {
       const newUrls = randomUrls.join(', ')
       setBulkUrls(newUrls)
       
-      toast.dismiss()
-      toast.success(`Added ${randomArticleCount} random articles to bulk processing!`)
+      console.log(`Added ${randomArticleCount} random articles to bulk processing!`)
     } catch (error) {
-      toast.dismiss()
-      toast.error('Failed to fetch random articles')
       console.error('Random bulk articles fetch error:', error)
     } finally {
       setIsLoadingRandomBulk(false)
@@ -846,12 +949,12 @@ function HomePage() {
   const handleFileUpload = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!files || files.length === 0) {
-      toast.error('Please select files to upload')
+      console.warn('Please select files to upload')
       return
     }
 
     if (isUploading) {
-      toast.error('File upload is already in progress')
+      console.warn('File upload is already in progress')
       return
     }
 
@@ -875,7 +978,7 @@ function HomePage() {
       for (let i = 0; i < fileList.length; i++) {
         // Check if user wants to stop processing
         if (shouldStopFileUpload) {
-          toast.info('File upload stopped by user')
+          console.info('File upload stopped by user')
           break
         }
 
@@ -1076,15 +1179,12 @@ function HomePage() {
         
         const totalErrors = errorCount + actualFailures
         if (totalErrors > 0) {
-          toast.success(
-            `File upload completed! ${actualSuccesses || successCount} files processed successfully. ${totalErrors} failed.`,
-            { duration: 6000 }
-          )
+          console.log(`File upload completed! ${actualSuccesses || successCount} files processed successfully. ${totalErrors} failed.`)
         } else {
-          toast.success(`Successfully processed all ${actualSuccesses || successCount} files!`)
+          console.log(`Successfully processed all ${actualSuccesses || successCount} files!`)
         }
       } else {
-        toast.error(`Failed to upload all ${fileList.length} files.`, { duration: 6000 })
+        console.error(`Failed to upload all ${fileList.length} files.`)
       }
     } catch (error) {
       setIsUploading(false)
@@ -1095,7 +1195,6 @@ function HomePage() {
         currentFile: '',
         processingFiles: new Map()
       })
-      toast.error(`File upload failed: ${error.message}`)
       console.error('File upload error:', error)
     }
   }
@@ -1372,34 +1471,25 @@ function HomePage() {
                   title={`Download all ${articles.length} articles from database`}
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
-                  <span>Download All ({articles.length})</span>
+                  <span>Download ({articles.length})</span>
                 </button>
                 <button
-                  onClick={handleValidateSelectedArticles}
-                  disabled={selectedArticles.length === 0 || isValidating}
+                  onClick={handleValidateAllArticles}
+                  disabled={articles.length === 0 || isValidating}
                   className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-                  title={`Validate ${selectedArticles.length} selected articles`}
+                  title={`Validate all ${articles.length} articles`}
                 >
                   <ClipboardDocumentCheckIcon className="h-4 w-4" />
-                  <span>{isValidating ? 'Validating...' : `Validate (${selectedArticles.length})`}</span>
+                  <span>{isValidating ? 'Validating...' : `Validate (${articles.length})`}</span>
                 </button>
                 <button
-                  onClick={handleDownloadAllArticles}
-                  disabled={selectedArticles.length === 0}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-                  title={`Download ${selectedArticles.length} selected articles`}
-                >
-                  <ArrowDownTrayIcon className="h-4 w-4" />
-                  <span>Download ({selectedArticles.length})</span>
-                </button>
-                <button
-                  onClick={handleDeleteSelectedArticles}
-                  disabled={selectedArticles.length === 0}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
-                  title={`Delete ${selectedArticles.length} selected articles`}
+                  onClick={handleDeleteAllArticles}
+                  disabled={articles.length === 0}
+                  className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-white"
+                  title={`Delete all ${articles.length} articles`}
                 >
                   <TrashIcon className="h-4 w-4" />
-                  <span>Delete ({selectedArticles.length})</span>
+                  <span>Delete ({articles.length})</span>
                 </button>
               </div>
             </div>
@@ -1414,15 +1504,9 @@ function HomePage() {
                     onClick={handleSelectPage}
                     className="text-sm text-gray-900 hover:text-gray-700 font-medium"
                   >
-                    {currentArticles.every(article => selectedArticles.includes(article.id)) && currentArticles.length > 0
+                    {currentArticles.every(article => selectedSet.has(article.id)) && currentArticles.length > 0
                       ? 'Deselect Page' 
                       : 'Select Page'}
-                  </button>
-                  <button
-                    onClick={handleSelectAll}
-                    className="text-sm text-gray-900 hover:text-gray-700 font-medium"
-                  >
-                    {selectedArticles.length === articles.length ? 'Deselect All' : 'Select All'}
                   </button>
                   <button
                     onClick={handleSelectFailed}
@@ -1431,6 +1515,26 @@ function HomePage() {
                     title="Select only failed articles"
                   >
                     Select Failed
+                  </button>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={handleValidateSelectedArticles}
+                    disabled={selectedArticles.length === 0 || isValidating}
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                    title={`Validate ${selectedArticles.length} selected articles`}
+                  >
+                    <ClipboardDocumentCheckIcon className="h-4 w-4" />
+                    <span>Validate ({selectedArticles.length})</span>
+                  </button>
+                  <button
+                    onClick={handleDeleteSelectedArticles}
+                    disabled={selectedArticles.length === 0}
+                    className="flex items-center space-x-2 px-3 py-2 bg-gray-900 hover:bg-gray-700 disabled:bg-gray-200 text-white disabled:text-gray-400 text-sm font-medium rounded-lg transition-colors disabled:cursor-not-allowed focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 focus:ring-offset-white"
+                    title={`Delete ${selectedArticles.length} selected articles`}
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                    <span>Delete ({selectedArticles.length})</span>
                   </button>
                 </div>
               </div>
@@ -1450,7 +1554,7 @@ function HomePage() {
                     key={article.id} 
                     onClick={() => handleArticleSelection(article.id)}
                     className={`group flex items-center justify-between p-4 rounded-xl border transition-colors cursor-pointer ${
-                      selectedArticles.includes(article.id) 
+                      selectedSet.has(article.id) 
                         ? 'border-gray-900 bg-gray-50' 
                         : 'border-gray-200 hover:bg-gray-50'
                     }`}
@@ -1459,7 +1563,7 @@ function HomePage() {
                       <div className="flex-shrink-0">
                         <input
                           type="checkbox"
-                          checked={selectedArticles.includes(article.id)}
+                          checked={selectedSet.has(article.id)}
                           onChange={(e) => {
                             e.stopPropagation()
                             handleArticleSelection(article.id)

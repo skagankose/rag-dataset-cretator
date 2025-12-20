@@ -306,7 +306,11 @@ class QuestionGenerator:
         total_questions: int = 10,
     ) -> List[Dict[str, Any]]:
         """Generate questions across multiple chunks with mixed single/multi-chunk approach."""
-        logger.info(f"Generating {total_questions} questions across {len(chunks)} chunks")
+        logger.info("=" * 80)
+        logger.info(f"💡 STARTING QUESTION GENERATION")
+        logger.info(f"   Total Questions to Generate: {total_questions}")
+        logger.info(f"   Total Chunks: {len(chunks)}")
+        logger.info("=" * 80)
         
         if not chunks:
             logger.warning("No chunks provided for question generation")
@@ -318,25 +322,44 @@ class QuestionGenerator:
         
         # Create chunk groups
         chunk_groups = self._create_chunk_groups(chunks, total_questions)
+        total_groups = len(chunk_groups)
+        
+        logger.info(f"Created {total_groups} chunk groups")
         
         # Generate questions for each group
         for idx, (chunk_group, num_questions) in enumerate(chunk_groups, 1):
             try:
-                logger.info(f"Processing chunk group {idx}/{len(chunk_groups)}...")
+                chunk_ids_str = ", ".join([c.id for c in chunk_group])
+                logger.info(f"📝 [{idx}/{total_groups}] Processing chunk group: {chunk_ids_str}")
+                logger.info(f"   Requesting {num_questions} question(s) from this group...")
+                
                 questions = await self._generate_questions_for_group(chunk_group, num_questions)
                 all_questions.extend(questions)
                 successful_groups += 1
+                
+                logger.info(f"   ✅ [{idx}/{total_groups}] Generated {len(questions)} question(s)")
+                logger.info(f"   Progress: {len(all_questions)}/{total_questions} questions generated so far")
+                
             except LLMError as e:
                 # Log the detailed LLM error
-                logger.error(f"LLM Error generating questions for chunk group {idx}/{len(chunk_groups)}: {e.get_detailed_message()}")
+                logger.error(f"   ❌ [{idx}/{total_groups}] LLM Error: {e.get_detailed_message()}")
                 failed_groups += 1
                 continue
             except Exception as e:
-                logger.error(f"Failed to generate questions for chunk group {idx}/{len(chunk_groups)}: {e}")
+                logger.error(f"   ❌ [{idx}/{total_groups}] Failed: {str(e)}")
                 failed_groups += 1
                 continue
         
-        logger.info(f"Generated {len(all_questions)} total questions from {successful_groups}/{len(chunk_groups)} groups (failed: {failed_groups})")
+        # Summary
+        logger.info("=" * 80)
+        logger.info(f"📊 QUESTION GENERATION SUMMARY")
+        logger.info(f"   Total Questions Generated: {len(all_questions)}/{total_questions}")
+        logger.info(f"   Successful Groups: {successful_groups}/{total_groups}")
+        logger.info(f"   Failed Groups: {failed_groups}/{total_groups}")
+        if total_groups > 0:
+            logger.info(f"   Success Rate: {(successful_groups/total_groups*100):.1f}%")
+        logger.info("=" * 80)
+        
         return all_questions
 
 

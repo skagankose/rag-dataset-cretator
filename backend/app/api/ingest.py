@@ -88,6 +88,14 @@ async def upload_files(
     responses = []
     
     try:
+        # Enhanced header for multi-file upload
+        logger.info("=" * 80)
+        logger.info(f"📤 STARTING MULTI-FILE UPLOAD")
+        logger.info(f"   Total Files: {len(files)}")
+        logger.info(f"   Chunk Size: {chunk_size}")
+        logger.info(f"   Total Questions per File: {total_questions}")
+        logger.info("=" * 80)
+        
         # Create options object
         options = IngestOptions(
             chunk_size=chunk_size,
@@ -97,8 +105,9 @@ async def upload_files(
             reingest=reingest
         )
         
-        for file in files:
+        for idx, file in enumerate(files, start=1):
             try:
+                logger.info(f"📄 [{idx}/{len(files)}] Processing file: {file.filename}")
                 content = await file.read()
                 content_str = content.decode("utf-8")
                 filename = file.filename
@@ -113,6 +122,7 @@ async def upload_files(
                     run_id
                 )
                 
+                logger.info(f"   ✅ [{idx}/{len(files)}] Queued for processing: {filename}")
                 responses.append(IngestResponse(
                     run_id=run_id,
                     message=f"Ingestion started for {filename}",
@@ -120,13 +130,23 @@ async def upload_files(
                 ))
                 
             except Exception as e:
-                logger.error(f"Failed to process file {file.filename}: {e}")
+                logger.error(f"   ❌ [{idx}/{len(files)}] Failed to process file {file.filename}: {e}")
                 responses.append(IngestResponse(
                     run_id=generate_run_id(),
                     message=f"Failed to process file {file.filename}: {str(e)}",
                     status="failed"
                 ))
-                
+        
+        # Summary
+        successful = sum(1 for r in responses if r.status == "started")
+        failed = sum(1 for r in responses if r.status == "failed")
+        logger.info("=" * 80)
+        logger.info(f"📊 FILE UPLOAD SUMMARY")
+        logger.info(f"   Total Files: {len(files)}")
+        logger.info(f"   Queued for Processing: {successful}")
+        logger.info(f"   Failed: {failed}")
+        logger.info("=" * 80)
+        
         return responses
         
     except Exception as e:

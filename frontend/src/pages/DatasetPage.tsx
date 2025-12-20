@@ -1,7 +1,6 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import toast from 'react-hot-toast'
 import { 
   DocumentTextIcon,
   MagnifyingGlassIcon,
@@ -54,18 +53,18 @@ function DatasetPage() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      toast.success('Dataset downloaded as JSON!')
+      console.log('Dataset downloaded as JSON!')
     } catch (error) {
-      toast.error('Failed to download dataset')
+      console.error('Failed to download dataset:', error)
     }
   }
 
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      toast.success('Copied to clipboard!')
+      console.log('Copied to clipboard!')
     } catch (error) {
-      toast.error('Failed to copy to clipboard')
+      console.error('Failed to copy to clipboard:', error)
     }
   }
 

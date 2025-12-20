@@ -78,7 +78,13 @@ async def validate_article(article_id: str) -> dict:
         first_error_reason = None
         validated_count = 0
         
-        logger.info(f"🔍 Starting validation for article '{entry.title}' - {len(items)} questions to validate")
+        # Enhanced header with article info
+        logger.info("=" * 80)
+        logger.info(f"🔍 VALIDATING ARTICLE")
+        logger.info(f"   Article: '{entry.title}'")
+        logger.info(f"   Article ID: {article_id}")
+        logger.info(f"   Total Questions: {len(items)}")
+        logger.info("=" * 80)
         
         for idx, item in enumerate(items, start=1):
             # Get the content of related chunks
@@ -92,7 +98,7 @@ async def validate_article(article_id: str) -> dict:
             if not chunks_content:
                 all_correct = False
                 first_error_reason = f"No chunk content found for question: {item.question}"
-                logger.error(f"❌ Question {idx}/{len(items)}: FAILED - No chunk content found")
+                logger.error(f"❌ [{idx}/{len(items)}] FAILED - No chunk content found")
                 logger.error(f"   Question: {item.question[:100]}{'...' if len(item.question) > 100 else ''}")
                 break
             
@@ -111,33 +117,37 @@ async def validate_article(article_id: str) -> dict:
                 reason = validation_result["reason"]
                 
                 if is_correct:
-                    logger.info(f"✅ Question {idx}/{len(items)}: CORRECT")
+                    logger.info(f"✅ [{idx}/{len(items)}] CORRECT")
                     logger.info(f"   Question: {item.question[:100]}{'...' if len(item.question) > 100 else ''}")
-                    logger.info(f"   Reason: {reason}")
+                    logger.info(f"   Reason: {reason[:150]}{'...' if len(reason) > 150 else ''}")
                 else:
-                    logger.warning(f"❌ Question {idx}/{len(items)}: INCORRECT")
+                    logger.warning(f"❌ [{idx}/{len(items)}] INCORRECT")
                     logger.warning(f"   Question: {item.question[:100]}{'...' if len(item.question) > 100 else ''}")
                     logger.warning(f"   Answer: {item.answer[:100]}{'...' if len(item.answer) > 100 else ''}")
-                    logger.warning(f"   Reason: {reason}")
+                    logger.warning(f"   Reason: {reason[:150]}{'...' if len(reason) > 150 else ''}")
                     all_correct = False
                     # Store the first error reason
                     if first_error_reason is None:
                         first_error_reason = reason
                         
             except Exception as e:
-                logger.error(f"❌ Question {idx}/{len(items)}: ERROR - {str(e)}")
+                logger.error(f"❌ [{idx}/{len(items)}] ERROR - {str(e)}")
                 logger.error(f"   Question: {item.question[:100]}{'...' if len(item.question) > 100 else ''}")
                 all_correct = False
                 if first_error_reason is None:
                     first_error_reason = f"Validation failed: {str(e)}"
         
-        # Log summary
-        logger.info(f"📊 Validation Complete: {validated_count}/{len(items)} questions validated")
+        # Enhanced summary
+        logger.info("=" * 80)
+        logger.info(f"📊 VALIDATION SUMMARY")
+        logger.info(f"   Article: '{entry.title}'")
+        logger.info(f"   Progress: {validated_count}/{len(items)} questions validated")
         if all_correct:
-            logger.info(f"✅ Result: ALL {validated_count} QUESTIONS ARE CORRECT")
+            logger.info(f"   ✅ Result: ALL {validated_count} QUESTIONS ARE CORRECT")
         else:
-            logger.warning(f"❌ Result: VALIDATION FAILED - Some questions are incorrect")
-            logger.warning(f"   First error: {first_error_reason}")
+            logger.warning(f"   ❌ Result: VALIDATION FAILED")
+            logger.warning(f"   First error: {first_error_reason[:200]}{'...' if len(first_error_reason) > 200 else ''}")
+        logger.info("=" * 80)
         
         return {
             "article_id": article_id,

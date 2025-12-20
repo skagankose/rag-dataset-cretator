@@ -9,10 +9,9 @@ system_prompt: |
   1. Tekil parçalar - sadece tek bir metin parçasından cevaplanabilen sorular
   2. Çoklu parçalar - birden fazla ilişkili metin parçasından bilgi gerektiren sorular
 
-  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  Her soru şu iki kategoriden birine sınıflandırılmalıdır:
   1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
   2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
-  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
 
   Gereksinimler:
   1. Sorular ve cevaplar SADECE sağlanan metin parçalarına dayanmalıdır
@@ -57,10 +56,9 @@ single_chunk_prompt: |
   Metin:
   {chunk_content}
 
-  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  Her soru şu iki kategoriden birine sınıflandırılmalıdır:
   1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
   2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
-  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
 
   Gereksinimler:
   - Sadece bu metinde açıkça belirtilen bilgiler hakkında soru sorun
@@ -82,10 +80,9 @@ multi_chunk_prompt: |
   2. Parçalar arasındaki bağlantılar, ilişkiler, karşılaştırmalar veya daha geniş kavramlar hakkında olan
   3. Tek başına herhangi bir parçadan cevaplanamayan{context_info}
 
-  Her soru şu üç kategoriden birine sınıflandırılmalıdır:
+  Her soru şu iki kategoriden birine sınıflandırılmalıdır:
   1. **FACTUAL**: Belirli ayrıntıların doğrudan hatırlanmasını test eden sorular. Cevap, metinde doğrudan bulunan belirli bir isim, tarih, sayı veya kısa bir ifadedir.
   2. **INTERPRETATION**: Metindeki kavramlar arasındaki neden-sonuç ilişkilerini veya bağlantıları açıklamanızı isteyerek kavramayı test eden sorular. Cevap, bilgiyi sadece alıntılamak yerine sentezlemeyi gerektirir.
-  3. **LONG_ANSWER**: Metinde anlatılan önemli bir konu, süreç veya olay hakkında kapsamlı, çok cümleli bir özet veya ayrıntılı açıklama gerektiren sorular.
 
   Parçalar:
   {chunks_text}
@@ -103,7 +100,6 @@ multi_chunk_prompt: |
 categories:
   - FACTUAL
   - INTERPRETATION
-  - LONG_ANSWER
 
 # Soru-cevap doğruluğunu kontrol etmek için doğrulama sistem istemi
 validation_system_prompt: |

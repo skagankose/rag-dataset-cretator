@@ -9,10 +9,9 @@ system_prompt: |
   1. Single chunks - questions answerable from one chunk alone
   2. Multiple chunks - questions requiring information from multiple related chunks
 
-  Each question must be categorized into one of these three categories:
+  Each question must be categorized into one of these two categories:
   1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
   2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
 
   Requirements:
   1. Questions and answers must be based ONLY on the provided text chunks
@@ -57,10 +56,9 @@ single_chunk_prompt: |
   Text:
   {chunk_content}
 
-  Each question must be categorized into one of these three categories:
+  Each question must be categorized into one of these two categories:
   1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
   2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
 
   Requirements:
   - Only ask about information explicitly stated in this text
@@ -82,10 +80,9 @@ multi_chunk_prompt: |
   2. Are about connections, relationships, comparisons, or broader concepts across chunks
   3. Cannot be answered from any single chunk alone{context_info}
 
-  Each question must be categorized into one of these three categories:
+  Each question must be categorized into one of these two categories:
   1. **FACTUAL**: Questions that test direct recall of specific details. The answer is a specific name, date, number, or short verbatim phrase found directly in the text.
   2. **INTERPRETATION**: Questions that test comprehension by asking for explanations of causes, effects, or relationships between concepts in the text. The answer requires synthesizing information rather than just quoting it.
-  3. **LONG_ANSWER**: Questions that demand a comprehensive, multi-sentence summary or detailed explanation of a major topic, process, or event described across the text.
 
   Chunks:
   {chunks_text}
@@ -103,7 +100,6 @@ multi_chunk_prompt: |
 categories:
   - FACTUAL
   - INTERPRETATION
-  - LONG_ANSWER
 
 # Validation system prompt for checking question-answer correctness
 validation_system_prompt: |

@@ -382,7 +382,11 @@ async def export_all_articles() -> StreamingResponse:
                 detail="No articles found in the database"
             )
         
-        logger.info(f"Exporting all {len(all_articles)} articles as ZIP")
+        total_articles = len(all_articles)
+        logger.info("=" * 80)
+        logger.info(f"📦 EXPORTING ALL ARTICLES")
+        logger.info(f"   Total Articles: {total_articles}")
+        logger.info("=" * 80)
         
         # Create ZIP file in memory
         zip_buffer = io.BytesIO()
@@ -391,14 +395,17 @@ async def export_all_articles() -> StreamingResponse:
             success_count = 0
             failure_count = 0
             
-            for entry in all_articles:
+            for idx, entry in enumerate(all_articles, start=1):
                 try:
+                    # Log progress for each article
+                    logger.info(f"📄 [{idx}/{total_articles}] Processing: '{entry.title}'")
+                    
                     # Export each article using the same logic as single export
                     canonical_id = entry.id
                     article_dir = paths.article_dir_readonly(canonical_id)
                     
                     if not article_dir:
-                        logger.warning(f"Directory not found for {canonical_id}, skipping")
+                        logger.warning(f"   ⚠️  [{idx}/{total_articles}] Directory not found for {canonical_id}, skipping")
                         failure_count += 1
                         continue
                     
@@ -501,9 +508,10 @@ async def export_all_articles() -> StreamingResponse:
                     json_content = json.dumps(export_data, indent=2, ensure_ascii=False)
                     zip_file.writestr(f"{safe_filename}.json", json_content.encode('utf-8'))
                     success_count += 1
+                    logger.info(f"   ✅ [{idx}/{total_articles}] Successfully exported '{entry.title}'")
                     
                 except Exception as e:
-                    logger.error(f"Failed to export article {entry.id}: {e}")
+                    logger.error(f"   ❌ [{idx}/{total_articles}] Failed to export '{entry.title}': {e}")
                     failure_count += 1
                     continue
             
@@ -517,7 +525,14 @@ async def export_all_articles() -> StreamingResponse:
             }
             zip_file.writestr("_manifest.json", json.dumps(manifest, indent=2))
         
-        logger.info(f"✓ Exported {success_count}/{len(all_articles)} articles successfully")
+        # Enhanced summary
+        logger.info("=" * 80)
+        logger.info(f"📊 EXPORT SUMMARY")
+        logger.info(f"   Total Articles: {total_articles}")
+        logger.info(f"   Successfully Exported: {success_count}")
+        logger.info(f"   Failed: {failure_count}")
+        logger.info(f"   Success Rate: {(success_count/total_articles*100):.1f}%")
+        logger.info("=" * 80)
         
         # Prepare the ZIP for download
         zip_buffer.seek(0)

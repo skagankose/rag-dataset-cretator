@@ -80,7 +80,6 @@ function ArticlePage() {
       URL.revokeObjectURL(url)
     } catch (error) {
       console.error('Failed to export article:', error)
-      alert(`Failed to export article: ${error.message}`)
     }
   }
 

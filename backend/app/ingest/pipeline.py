@@ -72,13 +72,17 @@ class IngestionPipeline:
         progress = ProgressLogger(run_id)
         
         try:
-            logger.info(f"Starting ingestion for URL: {url}")
+            logger.info("=" * 80)
+            logger.info(f"🚀 STARTING ARTICLE INGESTION")
+            logger.info(f"   URL: {url}")
+            logger.info("=" * 80)
             
             # Check for existing article
             url_checksum = compute_url_checksum(url)
             existing_article = article_index.find_by_checksum(url_checksum)
             
             if existing_article and not options.reingest:
+                logger.info(f"ℹ️  Article already exists: {existing_article.id}")
                 await progress.done(
                     "Article already exists",
                     article_id=existing_article.id,
@@ -91,6 +95,7 @@ class IngestionPipeline:
                 }
             
             # Step 1: Fetch article
+            logger.info(f"📥 [1/6] Fetching Wikipedia article...")
             await progress.fetching("Fetching Wikipedia article...")
             article_data = await fetch_wikipedia_article(url)
             
@@ -101,6 +106,7 @@ class IngestionPipeline:
             raw_html_path = paths.raw_html_file(article_id)
             await async_atomic_write_text(raw_html_path, article_data["content"])
             
+            logger.info(f"   ✅ Fetched: '{article_data['title']}' ({len(article_data['content'])} chars)")
             await progress.fetching(
                 f"Fetched article: {article_data['title']}",
                 article_id=article_id,
@@ -112,6 +118,7 @@ class IngestionPipeline:
             )
             
             # Step 2: Clean content
+            logger.info(f"🧹 [2/6] Cleaning and converting HTML to Markdown...")
             await progress.cleaning("Cleaning and converting HTML to Markdown...")
             cleaned_data = clean_wikipedia_html(
                 article_data["content"],
@@ -119,6 +126,7 @@ class IngestionPipeline:
                 strip_sections=options.strip_sections if hasattr(options, 'strip_sections') else True
             )
             
+            logger.info(f"   ✅ Cleaned content: {cleaned_data['word_count']} words, {len(cleaned_data['sections'])} sections")
             await progress.cleaning(
                 f"Cleaned content: {cleaned_data['word_count']} words",
                 article_id=article_id,
@@ -130,6 +138,7 @@ class IngestionPipeline:
             )
             
             # Step 3: Split into chunks
+            logger.info(f"✂️  [3/6] Splitting text with {options.split_strategy} strategy...")
             await progress.splitting(f"Splitting text with {options.split_strategy} strategy...")
             chunks = split_content(
                 content=cleaned_data["content"],
@@ -139,6 +148,7 @@ class IngestionPipeline:
                 chunk_overlap=options.chunk_overlap,
             )
             
+            logger.info(f"   ✅ Created {len(chunks)} chunks")
             await progress.splitting(
                 f"Created {len(chunks)} chunks",
                 article_id=article_id,
@@ -151,6 +161,7 @@ class IngestionPipeline:
             )
             
             # Step 4: Write Markdown files
+            logger.info(f"📝 [4/6] Writing article and chunk files...")
             await progress.write_markdown("Writing article and chunk files...")
             await self._write_article_files(
                 article_id=article_id,
@@ -161,12 +172,14 @@ class IngestionPipeline:
                 url_checksum=url_checksum
             )
             
+            logger.info(f"   ✅ Wrote article.md and {len(chunks)} chunk files")
             await progress.write_markdown(
                 f"Wrote article.md and {len(chunks)} chunk files",
                 article_id=article_id
             )
             
             # Step 5: Generate questions
+            logger.info(f"💡 [5/6] Generating {options.total_questions} questions with LLM (this may take a while)...")
             await progress.question_gen("Generating questions with LLM, this may take a while...")
             try:
                 questions = await generate_questions_for_chunks(
@@ -175,6 +188,7 @@ class IngestionPipeline:
                     model=options.llm_model,
                 )
                 
+                logger.info(f"   ✅ Generated {len(questions)} questions")
                 await progress.question_gen(
                     f"Generated {len(questions)} questions",
                     article_id=article_id,
@@ -186,6 +200,7 @@ class IngestionPipeline:
                 )
             except LLMError as e:
                 # Log detailed LLM error and continue with empty questions
+                logger.error(f"   ❌ LLM Error: {e.get_detailed_message()}")
                 logger.error(f"LLM Error during question generation: {e.get_detailed_message()}")
                 await progress.question_gen(
                     f"Failed to generate questions due to LLM error, continuing with empty dataset",
@@ -203,9 +218,11 @@ class IngestionPipeline:
                 questions = []
             
             # Step 6: Write dataset file
+            logger.info(f"💾 [6/6] Writing dataset markdown file...")
             await progress.write_dataset_md("Writing dataset markdown file...")
             await self._write_dataset_file(article_id, article_data["title"], questions)
             
+            logger.info(f"   ✅ Wrote dataset.md with {len(questions)} questions")
             await progress.write_dataset_md(
                 f"Wrote dataset.md with {len(questions)} questions",
                 article_id=article_id
@@ -222,6 +239,16 @@ class IngestionPipeline:
             
             # Step 8: Write logs
             await self._write_logs(run_id, article_id, progress)
+            
+            # Enhanced completion summary
+            logger.info("=" * 80)
+            logger.info(f"✅ INGESTION COMPLETE")
+            logger.info(f"   Article: '{article_data['title']}'")
+            logger.info(f"   Article ID: {article_id}")
+            logger.info(f"   Chunks: {len(chunks)}")
+            logger.info(f"   Questions: {len(questions)}")
+            logger.info(f"   Words: {cleaned_data['word_count']}")
+            logger.info("=" * 80)
             
             await progress.done(
                 f"Successfully ingested article: {article_data['title']}",
@@ -267,7 +294,12 @@ class IngestionPipeline:
         try:
             # Derive title from filename
             title = normalize_title(filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' '))
-            logger.info(f"Starting file ingestion for: {title}")
+            
+            logger.info("=" * 80)
+            logger.info(f"🚀 STARTING FILE INGESTION")
+            logger.info(f"   File: {filename}")
+            logger.info(f"   Title: {title}")
+            logger.info("=" * 80)
             
             # Generate pseudo-URL for ID generation and storage
             url = f"file://{filename}"
@@ -276,6 +308,7 @@ class IngestionPipeline:
             # Check for existing article
             existing_article = article_index.find_by_checksum(url_checksum)
             if existing_article and not options.reingest:
+                logger.info(f"ℹ️  File already ingested: {existing_article.id}")
                 await progress.done(
                     "Article already exists",
                     article_id=existing_article.id,
@@ -294,6 +327,7 @@ class IngestionPipeline:
             content = convert_markdown_to_mediawiki_headers(content)
             
             # Step 1: Parse Markdown structure
+            logger.info(f"📖 [1/5] Parsing Markdown structure...")
             await progress.cleaning("Parsing Markdown structure...")
             sections = self._parse_markdown_sections(content)
             
@@ -308,6 +342,7 @@ class IngestionPipeline:
                 "char_count": char_count,
             }
             
+            logger.info(f"   ✅ Parsed content: {word_count} words, {len(sections)} sections")
             await progress.cleaning(
                 f"Parsed content: {word_count} words",
                 article_id=article_id,
@@ -319,6 +354,7 @@ class IngestionPipeline:
             )
             
             # Step 2: Split into chunks
+            logger.info(f"✂️  [2/5] Splitting text with {options.split_strategy} strategy...")
             await progress.splitting(f"Splitting text with {options.split_strategy} strategy...")
             chunks = split_content(
                 content=content,
@@ -328,6 +364,7 @@ class IngestionPipeline:
                 chunk_overlap=options.chunk_overlap,
             )
             
+            logger.info(f"   ✅ Created {len(chunks)} chunks")
             await progress.splitting(
                 f"Created {len(chunks)} chunks",
                 article_id=article_id,
@@ -340,6 +377,7 @@ class IngestionPipeline:
             )
             
             # Step 3: Write Markdown files
+            logger.info(f"📝 [3/5] Writing article and chunk files...")
             await progress.write_markdown("Writing article and chunk files...")
             
             # Mock article_data for file
@@ -359,12 +397,14 @@ class IngestionPipeline:
                 url_checksum=url_checksum
             )
             
+            logger.info(f"   ✅ Wrote article.md and {len(chunks)} chunk files")
             await progress.write_markdown(
                 f"Wrote article.md and {len(chunks)} chunk files",
                 article_id=article_id
             )
             
             # Step 4: Generate questions
+            logger.info(f"💡 [4/5] Generating {options.total_questions} questions with LLM (this may take a while)...")
             await progress.question_gen("Generating questions with LLM, this may take a while...")
             try:
                 questions = await generate_questions_for_chunks(
@@ -373,6 +413,7 @@ class IngestionPipeline:
                     model=options.llm_model,
                 )
                 
+                logger.info(f"   ✅ Generated {len(questions)} questions")
                 await progress.question_gen(
                     f"Generated {len(questions)} questions",
                     article_id=article_id,
@@ -383,6 +424,7 @@ class IngestionPipeline:
                     }
                 )
             except LLMError as e:
+                logger.error(f"   ❌ LLM Error: {e.get_detailed_message()}")
                 logger.error(f"LLM Error during question generation: {e.get_detailed_message()}")
                 await progress.question_gen(
                     f"Failed to generate questions due to LLM error, continuing with empty dataset",
@@ -400,9 +442,11 @@ class IngestionPipeline:
                 questions = []
             
             # Step 5: Write dataset file
+            logger.info(f"💾 [5/5] Writing dataset markdown file...")
             await progress.write_dataset_md("Writing dataset markdown file...")
             await self._write_dataset_file(article_id, title, questions)
             
+            logger.info(f"   ✅ Wrote dataset.md with {len(questions)} questions")
             await progress.write_dataset_md(
                 f"Wrote dataset.md with {len(questions)} questions",
                 article_id=article_id
@@ -419,6 +463,17 @@ class IngestionPipeline:
             
             # Step 7: Write logs
             await self._write_logs(run_id, article_id, progress)
+            
+            # Enhanced completion summary
+            logger.info("=" * 80)
+            logger.info(f"✅ FILE INGESTION COMPLETE")
+            logger.info(f"   File: {filename}")
+            logger.info(f"   Title: {title}")
+            logger.info(f"   Article ID: {article_id}")
+            logger.info(f"   Chunks: {len(chunks)}")
+            logger.info(f"   Questions: {len(questions)}")
+            logger.info(f"   Words: {word_count}")
+            logger.info("=" * 80)
             
             await progress.done(
                 f"Successfully ingested file: {filename}",

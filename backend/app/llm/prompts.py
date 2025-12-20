@@ -116,7 +116,7 @@ def validate_question_response(response: Dict) -> bool:
     
     # Load valid categories from config
     config = _load_prompts_config()
-    valid_categories = set(config.get("categories", ["FACTUAL", "INTERPRETATION", "LONG_ANSWER"]))
+    valid_categories = set(config.get("categories", ["FACTUAL", "INTERPRETATION"]))
     
     for question in questions:
         if not isinstance(question, dict):
